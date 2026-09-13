@@ -14,11 +14,34 @@ const worker = {
     )
   },
 
-  async scheduled(
-    _controller: ScheduledController,
-    environment: CloudflareEnv
-  ) {
-    await runScheduledSync(environment)
+  async scheduled(controller: ScheduledController, environment: CloudflareEnv) {
+    const startedAt = Date.now()
+
+    try {
+      const results = await runScheduledSync(environment)
+      console.log("resource sync cron completed", {
+        cron: controller.cron,
+        scheduledTime: new Date(controller.scheduledTime).toISOString(),
+        durationMs: Date.now() - startedAt,
+        results: results.map((result) => ({
+          sourceKey: result.sourceKey,
+          status: result.status,
+          ok: result.ok,
+          pagesProcessed: result.pagesProcessed,
+          nextPage: result.nextPage,
+          lastPage: result.lastPage,
+          lastError: result.lastError,
+        })),
+      })
+    } catch (error) {
+      console.error("resource sync cron failed", {
+        cron: controller.cron,
+        scheduledTime: new Date(controller.scheduledTime).toISOString(),
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    }
   },
 }
 
