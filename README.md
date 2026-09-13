@@ -93,6 +93,8 @@ POST /api/sync?source=xigua&page=1
 POST /api/catalog/sync
 ```
 
+资源管理页面：<https://movie.71954466.workers.dev/admin>。页面提供“同步当前”和“同步全部”按钮，也可以手动调用 `POST /api/sync`。
+
 `/api/sync` 为公开的手动同步入口。`/api/catalog/sync` 接收以下 JSON：
 
 ```json

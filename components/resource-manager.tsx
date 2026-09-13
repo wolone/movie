@@ -58,6 +58,16 @@ type SourceResponse = {
   items: ResourceItem[]
 }
 
+type SyncResponse = {
+  ok: boolean
+  results: Array<{
+    ok: boolean
+    sourceKey: string
+    itemsSynced?: number
+    error?: string
+  }>
+}
+
 function formatDate(value: string | null) {
   if (!value) return "未记录更新时间"
 
@@ -84,6 +94,7 @@ export function ResourceManager() {
   const [notice, setNotice] = useState("")
   const [doubanIds, setDoubanIds] = useState<Record<string, string>>({})
   const [submittingId, setSubmittingId] = useState<string | null>(null)
+  const [isSyncing, setIsSyncing] = useState(false)
 
   const loadResources = useCallback(async () => {
     setIsLoading(true)
@@ -136,6 +147,47 @@ export function ResourceManager() {
     setSourceKey(nextSource)
     setPage(1)
     setNotice("")
+  }
+
+  async function syncResources(targetSource?: SourceKey) {
+    setIsSyncing(true)
+    setError("")
+    setNotice("")
+
+    const params = new URLSearchParams({ page: "1" })
+    if (targetSource) params.set("source", targetSource)
+
+    try {
+      const response = await fetch(`/api/sync?${params.toString()}`, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      })
+      const payload = (await response.json()) as
+        SyncResponse | { error?: string }
+
+      if (!response.ok || !("results" in payload)) {
+        throw new Error("error" in payload ? payload.error : "资源站同步失败")
+      }
+
+      const successful = payload.results.filter((result) => result.ok)
+      const failed = payload.results.filter((result) => !result.ok)
+      const count = successful.reduce(
+        (total, result) => total + (result.itemsSynced ?? 0),
+        0
+      )
+      const failureText = failed.length
+        ? `，失败：${failed.map((result) => result.sourceKey).join("、")}`
+        : ""
+
+      setNotice(`同步完成，共更新 ${count} 条资源${failureText}。`)
+      await loadResources()
+    } catch (syncError) {
+      setError(
+        syncError instanceof Error ? syncError.message : "资源站同步失败"
+      )
+    } finally {
+      setIsSyncing(false)
+    }
   }
 
   async function mapResource(item: ResourceItem) {
@@ -228,20 +280,42 @@ export function ResourceManager() {
         </CardContent>
       </Card>
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+      <div className="mt-6 flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
         <span>
           {data ? `共 ${data.total} 条资源` : "正在读取资源"}
           {activeQuery ? ` · 搜索「${activeQuery}」` : ""}
         </span>
-        <Button
-          disabled={isLoading}
-          onClick={() => void loadResources()}
-          size="sm"
-          variant="ghost"
-        >
-          <RefreshCw data-icon="inline-start" />
-          刷新
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            disabled={isLoading || isSyncing}
+            onClick={() => void syncResources(sourceKey)}
+            size="sm"
+            variant="outline"
+          >
+            {isSyncing ? (
+              <LoaderCircle className="animate-spin" data-icon="inline-start" />
+            ) : (
+              <RefreshCw data-icon="inline-start" />
+            )}
+            同步当前
+          </Button>
+          <Button
+            disabled={isLoading || isSyncing}
+            onClick={() => void syncResources()}
+            size="sm"
+            variant="secondary"
+          >
+            同步全部
+          </Button>
+          <Button
+            disabled={isLoading || isSyncing}
+            onClick={() => void loadResources()}
+            size="sm"
+            variant="ghost"
+          >
+            刷新
+          </Button>
+        </div>
       </div>
 
       {notice && (
