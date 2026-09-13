@@ -202,6 +202,12 @@ export function MovieHome() {
             >
               我的片单
             </Link>
+            <Link
+              className="transition-colors hover:text-foreground"
+              href="/manage"
+            >
+              资源映射
+            </Link>
           </nav>
           <div className="ml-auto flex min-w-0 items-center gap-2">
             <form

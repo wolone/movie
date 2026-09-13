@@ -1,0 +1,380 @@
+"use client"
+
+import { useCallback, useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Link2,
+  LoaderCircle,
+  RefreshCw,
+  Search,
+} from "lucide-react"
+
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+
+const sources = [
+  { key: "xigua", name: "西瓜资源" },
+  { key: "wsyzy", name: "无水印资源网" },
+  { key: "uuzy", name: "UUZY" },
+] as const
+
+type SourceKey = (typeof sources)[number]["key"]
+
+type ResourceItem = {
+  sourceKey: string
+  sourceName: string
+  sourceId: string
+  title: string
+  sourceType: string
+  sourceArea: string
+  sourceLanguage: string
+  statusNote: string
+  sourceUpdatedAt: string | null
+  posterUrl: string
+  detailUrl: string
+  playLines: Array<{ name: string; url: string }>
+  doubanId: string | null
+}
+
+type SourceResponse = {
+  source: { key: SourceKey; name: string }
+  page: number
+  limit: number
+  total: number
+  items: ResourceItem[]
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "未记录更新时间"
+
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat("zh-CN", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(date)
+}
+
+export function ResourceManager() {
+  const router = useRouter()
+  const [sourceKey, setSourceKey] = useState<SourceKey>("wsyzy")
+  const [query, setQuery] = useState("")
+  const [activeQuery, setActiveQuery] = useState("")
+  const [page, setPage] = useState(1)
+  const [data, setData] = useState<SourceResponse | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState("")
+  const [notice, setNotice] = useState("")
+  const [doubanIds, setDoubanIds] = useState<Record<string, string>>({})
+  const [submittingId, setSubmittingId] = useState<string | null>(null)
+
+  const loadResources = useCallback(async () => {
+    setIsLoading(true)
+    setError("")
+
+    const params = new URLSearchParams({
+      source: sourceKey,
+      limit: "12",
+      page: String(page),
+    })
+    if (activeQuery) params.set("q", activeQuery)
+
+    try {
+      const response = await fetch(`/api/sources?${params.toString()}`, {
+        headers: { Accept: "application/json" },
+      })
+      const payload = (await response.json()) as
+        SourceResponse | { error?: string }
+
+      if (!response.ok || !("items" in payload)) {
+        throw new Error("error" in payload ? payload.error : "资源接口不可用")
+      }
+
+      setData(payload)
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "资源加载失败")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [activeQuery, page, sourceKey])
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadResources()
+    }, 0)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [loadResources])
+
+  function submitSearch(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setPage(1)
+    setActiveQuery(query.trim())
+  }
+
+  function selectSource(value: string[]) {
+    const nextSource = value[0] as SourceKey | undefined
+    if (!nextSource) return
+
+    setSourceKey(nextSource)
+    setPage(1)
+    setNotice("")
+  }
+
+  async function mapResource(item: ResourceItem) {
+    const doubanId = doubanIds[item.sourceId]?.trim() || item.doubanId?.trim()
+    if (!doubanId) {
+      setNotice(`请先填写「${item.title}」的豆瓣 ID 或豆瓣 URL。`)
+      return
+    }
+
+    setSubmittingId(item.sourceId)
+    setNotice("")
+
+    try {
+      const response = await fetch("/api/catalog/sync", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          doubanId,
+          sourceKey: item.sourceKey,
+          sourceId: item.sourceId,
+        }),
+      })
+      const payload = (await response.json()) as { error?: string }
+
+      if (!response.ok) throw new Error(payload.error || "豆瓣映射失败")
+
+      setNotice(`「${item.title}」已完成豆瓣资料同步。`)
+      await loadResources()
+    } catch (mapError) {
+      setNotice(mapError instanceof Error ? mapError.message : "豆瓣映射失败")
+    } finally {
+      setSubmittingId(null)
+    }
+  }
+
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.limit)) : 1
+
+  return (
+    <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-sm font-medium tracking-[0.2em] text-primary uppercase">
+            内容工作台
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
+            资源站与豆瓣映射
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+            先从资源站找到影片，再输入豆瓣 ID
+            或豆瓣链接。同步完成后，影片详情页会显示对应播放资源。
+          </p>
+        </div>
+        <Button onClick={() => router.push("/")} variant="outline">
+          返回影片首页
+          <ChevronRight data-icon="inline-end" />
+        </Button>
+      </div>
+
+      <Card className="mt-8">
+        <CardContent className="flex flex-col gap-4 p-4 sm:p-6">
+          <ToggleGroup
+            aria-label="选择资源站"
+            multiple={false}
+            onValueChange={selectSource}
+            size="sm"
+            value={[sourceKey]}
+            variant="outline"
+          >
+            {sources.map((source) => (
+              <ToggleGroupItem key={source.key} value={source.key}>
+                {source.name}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <form className="flex gap-2" onSubmit={submitSearch}>
+            <Input
+              aria-label="搜索资源站影片"
+              className="h-10"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索资源标题或 sourceId"
+              value={query}
+            />
+            <Button aria-label="搜索资源站" size="icon" type="submit">
+              <Search data-icon="inline-start" />
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+        <span>
+          {data ? `共 ${data.total} 条资源` : "正在读取资源"}
+          {activeQuery ? ` · 搜索「${activeQuery}」` : ""}
+        </span>
+        <Button
+          disabled={isLoading}
+          onClick={() => void loadResources()}
+          size="sm"
+          variant="ghost"
+        >
+          <RefreshCw data-icon="inline-start" />
+          刷新
+        </Button>
+      </div>
+
+      {notice && (
+        <div className="mt-4 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary">
+          {notice}
+        </div>
+      )}
+
+      {error ? (
+        <div className="mt-6 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-6 text-sm text-destructive">
+          {error}
+        </div>
+      ) : isLoading ? (
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          {["a", "b", "c", "d"].map((item) => (
+            <Skeleton className="h-64 rounded-xl" key={item} />
+          ))}
+        </div>
+      ) : data && data.items.length > 0 ? (
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          {data.items.map((item) => (
+            <Card key={`${item.sourceKey}-${item.sourceId}`}>
+              <CardHeader className="gap-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <CardTitle className="truncate">{item.title}</CardTitle>
+                    <CardDescription className="mt-1">
+                      {item.sourceName} · sourceId {item.sourceId}
+                    </CardDescription>
+                  </div>
+                  <Badge variant={item.doubanId ? "secondary" : "outline"}>
+                    {item.doubanId ? "已映射" : "待映射"}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <div className="flex gap-3">
+                  {item.posterUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      alt={item.title}
+                      className="h-24 w-16 shrink-0 rounded-lg object-cover"
+                      loading="lazy"
+                      src={item.posterUrl}
+                    />
+                  ) : (
+                    <div className="flex h-24 w-16 shrink-0 items-center justify-center rounded-lg bg-muted text-center text-xs text-muted-foreground">
+                      无海报
+                    </div>
+                  )}
+                  <div className="min-w-0 space-y-1 text-sm text-muted-foreground">
+                    <p>
+                      {[item.sourceType, item.sourceArea, item.sourceLanguage]
+                        .filter(Boolean)
+                        .join(" · ") || "暂无分类资料"}
+                    </p>
+                    <p>{item.statusNote || "暂无更新状态"}</p>
+                    <p>
+                      {item.playLines.length} 个播放链接 ·{" "}
+                      {formatDate(item.sourceUpdatedAt)}
+                    </p>
+                  </div>
+                </div>
+                <Separator />
+                <form
+                  className="flex flex-col gap-2 sm:flex-row"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void mapResource(item)
+                  }}
+                >
+                  <Input
+                    aria-label={`${item.title} 豆瓣 ID`}
+                    onChange={(event) =>
+                      setDoubanIds((current) => ({
+                        ...current,
+                        [item.sourceId]: event.target.value,
+                      }))
+                    }
+                    placeholder="豆瓣 ID 或 URL"
+                    value={doubanIds[item.sourceId] ?? item.doubanId ?? ""}
+                  />
+                  <Button
+                    className="shrink-0"
+                    disabled={submittingId === item.sourceId}
+                    type="submit"
+                  >
+                    {submittingId === item.sourceId ? (
+                      <LoaderCircle
+                        className="animate-spin"
+                        data-icon="inline-start"
+                      />
+                    ) : item.doubanId ? (
+                      <Check data-icon="inline-start" />
+                    ) : (
+                      <Link2 data-icon="inline-start" />
+                    )}
+                    {item.doubanId ? "重新同步" : "绑定豆瓣"}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-6 rounded-xl border border-dashed border-border px-6 py-12 text-center text-sm text-muted-foreground">
+          当前筛选条件下没有资源。请先运行资源站同步，或换一个关键词。
+        </div>
+      )}
+
+      <div className="mt-8 flex items-center justify-between gap-4">
+        <Button
+          disabled={page <= 1 || isLoading}
+          onClick={() => setPage((current) => Math.max(1, current - 1))}
+          size="sm"
+          variant="outline"
+        >
+          <ChevronLeft data-icon="inline-start" />
+          上一页
+        </Button>
+        <span className="text-sm text-muted-foreground">
+          第 {page} / {totalPages} 页
+        </span>
+        <Button
+          disabled={page >= totalPages || isLoading}
+          onClick={() => setPage((current) => current + 1)}
+          size="sm"
+          variant="outline"
+        >
+          下一页
+          <ChevronRight data-icon="inline-end" />
+        </Button>
+      </div>
+    </div>
+  )
+}
