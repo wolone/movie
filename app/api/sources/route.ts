@@ -112,7 +112,9 @@ export async function GET(request: Request) {
         mappingFilter
       )
 
-      return Response.json(result)
+      return Response.json(result, {
+        headers: { "Cache-Control": "no-store" },
+      })
     }
 
     const sources = await Promise.all(
@@ -152,7 +154,10 @@ export async function GET(request: Request) {
       })
     )
 
-    return Response.json({ sources })
+    return Response.json(
+      { sources },
+      { headers: { "Cache-Control": "no-store" } }
+    )
   } catch (error) {
     console.error("Unable to read resource source status", error)
     return Response.json(
