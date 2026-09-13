@@ -442,7 +442,10 @@ async function fetchBody(url: URL, timeoutMs = 20_000) {
       })
       const body = await response.text()
       const trimmed = body.trim()
-      const validBody = trimmed.startsWith("<") || trimmed.startsWith("{")
+      const validBody =
+        trimmed.startsWith("<") ||
+        trimmed.startsWith("{") ||
+        trimmed.startsWith("[")
 
       if (!response.ok) {
         retryable = isRetryableStatus(response.status)
