@@ -274,7 +274,9 @@ export function ResourceManager() {
         : ""
 
       setNotice(
-        `全量同步任务已启动，本次处理 ${pages} 页，后续由 Cron 继续执行${failureText}。`
+        pages === 0 && !targetSource
+          ? `全量同步任务已启动，三个资源站将由各自 Cron 分批处理${failureText}。`
+          : `全量同步任务已启动，本次处理 ${pages} 页，后续由 Cron 继续执行${failureText}。`
       )
       await Promise.all([loadResources(), loadSyncProgress()])
     } catch (syncError) {

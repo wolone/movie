@@ -1437,6 +1437,17 @@ export async function startFullSync(
 ) {
   const keys = sourceKey ? [sourceKey] : SOURCE_KEYS
   for (const key of keys) await setFullSyncRun(environment, key, false)
+
+  if (!sourceKey) {
+    return Promise.all(
+      keys.map(async (key) => ({
+        ...toSyncProgress(key, await getSyncRun(environment, key)),
+        ok: true,
+        pagesProcessed: 0,
+      }))
+    )
+  }
+
   return processFullSyncBatch(environment, { sourceKeys: keys })
 }
 
