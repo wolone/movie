@@ -477,7 +477,23 @@ function extractUuzyPlayLines(html: string) {
   return lines
 }
 
-async function fetchUuzyItems(config: SourceConfig, page: number) {
+type CachedUuzyResource = {
+  source_id: string
+  title: string
+  source_type: string
+  source_area: string
+  source_language: string
+  status_note: string
+  source_updated_at: string | null
+  poster_url: string
+  play_lines: string
+}
+
+async function fetchUuzyItems(
+  config: SourceConfig,
+  page: number,
+  environment: { DB: D1Database }
+) {
   const listBody = await fetchBody(buildListUrl(config, page))
   const rows = [...listBody.matchAll(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi)]
     .map((match) => match[0])
@@ -530,9 +546,56 @@ async function fetchUuzyItems(config: SourceConfig, page: number) {
     } satisfies ResourceItem
   })
 
+  const sourceIds = listItems.map((item) => item.sourceId).filter(Boolean)
+  const cachedRows = sourceIds.length
+    ? await environment.DB.prepare(
+        `SELECT source_id, title, source_type, source_area, source_language,
+                status_note, source_updated_at, poster_url, play_lines
+           FROM movie_sources
+          WHERE source_key = ?
+            AND source_id IN (${sourceIds.map(() => "?").join(", ")})`
+      )
+        .bind(config.key, ...sourceIds)
+        .all<CachedUuzyResource>()
+    : { results: [] as CachedUuzyResource[] }
+  const cachedById = new Map(
+    cachedRows.results.map((resource) => [resource.source_id, resource])
+  )
+
   const items = await Promise.all(
     listItems.map(async (item) => {
       if (!item.detailUrl) return item
+
+      const cached = cachedById.get(item.sourceId)
+      if (
+        cached &&
+        cached.title === item.title &&
+        cached.status_note === item.note &&
+        cached.play_lines !== "[]"
+      ) {
+        let playLines: ResourceItem["playLines"] = []
+        try {
+          const parsed = JSON.parse(
+            cached.play_lines
+          ) as ResourceItem["playLines"]
+          if (Array.isArray(parsed)) playLines = parsed
+        } catch {
+          playLines = []
+        }
+
+        if (playLines.length > 0) {
+          return {
+            ...item,
+            title: cached.title || item.title,
+            sourceType: cached.source_type || item.sourceType,
+            area: cached.source_area || item.area,
+            language: cached.source_language || item.language,
+            note: cached.status_note || item.note,
+            posterUrl: cached.poster_url || item.posterUrl,
+            playLines,
+          }
+        }
+      }
 
       try {
         const detailBody = await fetchBody(new URL(item.detailUrl), 8_000)
@@ -630,10 +693,14 @@ async function fetchJsonItems(config: SourceConfig, page: number) {
   } satisfies SourcePage
 }
 
-async function fetchSourceItems(config: SourceConfig, page: number) {
+async function fetchSourceItems(
+  config: SourceConfig,
+  page: number,
+  environment: { DB: D1Database }
+) {
   if (config.format === "xml") return fetchXmlItems(config, page)
   if (config.format === "json") return fetchJsonItems(config, page)
-  return fetchUuzyItems(config, page)
+  return fetchUuzyItems(config, page, environment)
 }
 
 function uniqueItems(items: ResourceItem[]) {
@@ -689,7 +756,7 @@ async function syncSourcePage(
   const startedAt = new Date().toISOString()
 
   try {
-    const sourcePage = await fetchSourceItems(config, page)
+    const sourcePage = await fetchSourceItems(config, page, environment)
     const items = uniqueItems(sourcePage.items)
 
     if (sourceKey === "uuzy") {
