@@ -6,6 +6,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
   Link2,
   LoaderCircle,
   Pause,
@@ -559,8 +560,22 @@ export function ResourceManager() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <CardTitle className="truncate">{item.title}</CardTitle>
-                    <CardDescription className="mt-1">
-                      {item.sourceName} · sourceId {item.sourceId}
+                    <CardDescription className="mt-1 flex items-center gap-2">
+                      <span>
+                        {item.sourceName} · sourceId {item.sourceId}
+                      </span>
+                      <a
+                        className="shrink-0 underline underline-offset-4 hover:text-foreground"
+                        href={`https://search.douban.com/movie/subject_search?search_text=${encodeURIComponent(item.title)}`}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        豆瓣搜索
+                        <ExternalLink
+                          className="ml-1 inline-block size-3"
+                          data-icon="inline-end"
+                        />
+                      </a>
                     </CardDescription>
                   </div>
                   <Badge variant={item.doubanId ? "secondary" : "outline"}>
