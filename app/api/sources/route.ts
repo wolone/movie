@@ -1,11 +1,101 @@
 import { env } from "cloudflare:workers"
 
-import { SOURCE_CONFIGS, SOURCE_KEYS } from "@/lib/resource-sources"
+import {
+  isSourceKey,
+  SOURCE_CONFIGS,
+  SOURCE_KEYS,
+  type SourceKey,
+} from "@/lib/resource-sources"
+import { movieResourceFromRow, type MovieResourceRow } from "@/lib/movies"
 
 export const dynamic = "force-dynamic"
 
-export async function GET() {
+type SourceItemRow = MovieResourceRow & {
+  title: string
+  douban_id: string | null
+}
+
+async function getSourceItems(
+  sourceKey: SourceKey,
+  query: string,
+  page: number,
+  limit: number
+) {
+  const offset = (page - 1) * limit
+  const search = `%${query}%`
+  const [count, rows] = await Promise.all([
+    env.DB.prepare(
+      `SELECT COUNT(*) AS total
+         FROM movie_sources
+        WHERE source_key = ?
+          AND (title LIKE ? OR source_id LIKE ?)`
+    )
+      .bind(sourceKey, search, search)
+      .first<{ total: number }>(),
+    env.DB.prepare(
+      `SELECT source_key, source_name, source_id, title, source_type,
+          source_area, source_language, status_note, source_updated_at,
+          poster_url, detail_url, play_lines, douban_id
+         FROM movie_sources
+        WHERE source_key = ?
+          AND (title LIKE ? OR source_id LIKE ?)
+        ORDER BY source_updated_at DESC, source_id DESC
+        LIMIT ? OFFSET ?`
+    )
+      .bind(sourceKey, search, search, limit, offset)
+      .all<SourceItemRow>(),
+  ])
+
+  return {
+    source: {
+      key: sourceKey,
+      name: SOURCE_CONFIGS[sourceKey].name,
+    },
+    page,
+    limit,
+    total: count?.total ?? 0,
+    items: rows.results.map((row) => ({
+      ...movieResourceFromRow(row),
+      title: row.title,
+      doubanId: row.douban_id,
+    })),
+  }
+}
+
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url)
+    const sourceParam = searchParams.get("source")
+
+    if (sourceParam) {
+      if (!isSourceKey(sourceParam)) {
+        return Response.json(
+          { error: "Unknown resource source" },
+          { status: 400 }
+        )
+      }
+
+      const requestedPage = Number.parseInt(searchParams.get("page") ?? "1", 10)
+      const requestedLimit = Number.parseInt(
+        searchParams.get("limit") ?? "30",
+        10
+      )
+      const page = Number.isFinite(requestedPage)
+        ? Math.max(1, requestedPage)
+        : 1
+      const limit = Number.isFinite(requestedLimit)
+        ? Math.min(100, Math.max(1, requestedLimit))
+        : 30
+      const result = await getSourceItems(
+        sourceParam,
+        searchParams.get("q")?.trim() ?? "",
+        page,
+        limit
+      )
+
+      return Response.json(result)
+    }
+
     const sources = await Promise.all(
       SOURCE_KEYS.map(async (sourceKey) => {
         const [run, counts] = await Promise.all([

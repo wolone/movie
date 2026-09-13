@@ -88,6 +88,7 @@ GET /api/health
 GET /api/movies?q=dune&category=科幻
 GET /api/movies/:slug
 GET /api/sources
+GET /api/sources?source=wsyzy&q=丰臣
 POST /api/sync?source=xigua&page=1
 POST /api/catalog/sync
 ```
@@ -103,6 +104,8 @@ POST /api/catalog/sync
 ```
 
 三个资源站不提供稳定的豆瓣 ID，ApiZero 当前公开接口也按豆瓣 ID 或豆瓣 URL查询，因此资源采集与豆瓣关联是两个步骤，不会在生产环境做未经确认的标题猜测。UUZY 当前接口行为只稳定返回首页，定时任务因此只同步每个资源站的第 1 页；需要更多页时可手动传入 `page`。
+
+`GET /api/sources?source=<sourceKey>` 可以分页查看已采集资源的标题、`sourceId` 和播放链接；拿到确认过的资源 ID 后，再调用 `/api/catalog/sync` 完成豆瓣映射。
 
 本项目只保存资源站公开返回的影片元数据和外部播放 URL，不下载、复制或代理视频文件。使用者需要自行确认资源站内容、播放链接及相关图片拥有合法使用权，并遵守各服务的条款。
 
