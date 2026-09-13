@@ -24,7 +24,8 @@ export async function GET(request: Request) {
     await getSyncProgress(
       env,
       sourceParam ? (sourceParam as SourceKey) : undefined
-    )
+    ),
+    { headers: { "Cache-Control": "no-store" } }
   )
 }
 
