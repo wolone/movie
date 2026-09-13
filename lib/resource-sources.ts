@@ -25,7 +25,7 @@ type SourceConfig = {
   listEndpoint: string
   detailEndpoint: string
   siteBase: string
-  format: "json" | "xml"
+  format: "json" | "xml" | "html"
   supportsPagination: boolean
   preferredFlag: string
 }
@@ -79,11 +79,11 @@ export const SOURCE_CONFIGS: Record<SourceKey, SourceConfig> = {
   uuzy: {
     key: "uuzy",
     name: "UUZY",
-    listEndpoint: "https://uuzy.me/api.php/provide/vod/from/snm3u8/at/xml",
-    detailEndpoint: "https://uuzy.me/api.php/provide/vod/from/snm3u8/at/xml",
+    listEndpoint: "https://uuzy.me/",
+    detailEndpoint: "https://uuzy.me/",
     siteBase: "https://uuzy.me",
-    format: "xml",
-    supportsPagination: false,
+    format: "html",
+    supportsPagination: true,
     preferredFlag: "m3u8",
   },
 }
@@ -349,7 +349,9 @@ function normalizeJsonItem(
 
 function buildListUrl(config: SourceConfig, page: number) {
   const url = new URL(config.listEndpoint)
-  if (config.supportsPagination) url.searchParams.set("pg", String(page))
+  if (config.supportsPagination) {
+    url.searchParams.set(config.format === "html" ? "page" : "pg", String(page))
+  }
   return url
 }
 
@@ -395,9 +397,9 @@ function parseJsonPageMeta(
   }
 }
 
-async function fetchBody(url: URL) {
+async function fetchBody(url: URL, timeoutMs = 20_000) {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 20_000)
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
     const response = await fetch(url, {
@@ -420,6 +422,153 @@ async function fetchBody(url: URL) {
   } finally {
     clearTimeout(timeoutId)
   }
+}
+
+function htmlTagAttribute(block: string, tag: string, attribute: string) {
+  return cleanText(
+    block.match(
+      new RegExp(`<${tag}\\b[^>]*\\b${attribute}=["']([^"']+)["']`, "i")
+    )?.[1] ?? ""
+  )
+}
+
+function htmlMetaValue(html: string, names: string[]) {
+  for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = match[0]
+    const name =
+      htmlTagAttribute(tag, "meta", "property") ||
+      htmlTagAttribute(tag, "meta", "name")
+    if (names.includes(name.toLowerCase())) {
+      return htmlTagAttribute(tag, "meta", "content")
+    }
+  }
+
+  return ""
+}
+
+function htmlCells(row: string) {
+  return [...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((match) =>
+    stripMarkup(match[1] ?? "")
+  )
+}
+
+function extractUuzyPlayLines(html: string) {
+  const lines: ResourceItem["playLines"] = []
+  const seen = new Set<string>()
+
+  for (const match of html.matchAll(
+    /(?:value|href)=["']([^"']*\$https?:\/\/[^"']+)["']/gi
+  )) {
+    const raw = cleanText(match[1] ?? "")
+    const separator = raw.lastIndexOf("$")
+    const url = cleanText(raw.slice(separator + 1))
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue
+
+    seen.add(url)
+    lines.push({
+      name: cleanText(raw.slice(0, separator)) || "正片",
+      url,
+    })
+  }
+
+  return lines
+}
+
+async function fetchUuzyItems(config: SourceConfig, page: number) {
+  const listBody = await fetchBody(buildListUrl(config, page))
+  const rows = [...listBody.matchAll(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi)]
+    .map((match) => match[0])
+    .filter((row) => /\/phim\//i.test(row))
+  const pageCount = Math.max(
+    1,
+    ...[...listBody.matchAll(/[?&]page=(\d+)/gi)].map((match) =>
+      readNumericValue(match[1])
+    )
+  )
+  const totalMatch = listBody.match(
+    /本站统计[\s\S]{0,500}?<div[^>]*class=["']num["'][^>]*>([\d,]+)/i
+  )
+  const totalItems = readNumericValue(totalMatch?.[1]?.replaceAll(",", ""))
+
+  const listItems = rows.map((row) => {
+    const detailUrl = resolveUrl(
+      htmlTagAttribute(row, "a", "href"),
+      config.siteBase
+    )
+    const slug = detailUrl.split("/").filter(Boolean).pop() ?? ""
+    const cells = htmlCells(row)
+    const title = stripMarkup(
+      row.match(
+        /<div\b[^>]*class=["']title["'][^>]*>[\s\S]*?<a\b[^>]*>([\s\S]*?)<\/a>/i
+      )?.[1] ??
+        cells[0] ??
+        ""
+    )
+
+    return {
+      sourceKey: config.key,
+      sourceName: config.name,
+      sourceId: slug,
+      title,
+      sourceType: (cells[2] ?? "").replace(/[【】]/g, "").trim(),
+      area: cells[1] ?? "",
+      language: "",
+      year: 0,
+      note: stripMarkup(
+        row.match(/class=["']tr-num["'][^>]*>([\s\S]*?)<\//i)?.[1] ?? ""
+      ),
+      actors: "",
+      directors: "",
+      description: "",
+      posterUrl: "",
+      sourceUpdatedAt: parseDate(cells[3] ?? ""),
+      playLines: [],
+      detailUrl,
+    } satisfies ResourceItem
+  })
+
+  const items = await Promise.all(
+    listItems.map(async (item) => {
+      if (!item.detailUrl) return item
+
+      try {
+        const detailBody = await fetchBody(new URL(item.detailUrl), 8_000)
+        const detailTitle = htmlMetaValue(detailBody, ["og:title"])
+          .replace(/^(电影|电视剧)\s*/u, "")
+          .trim()
+        const publishedAt = htmlMetaValue(detailBody, [
+          "og:updated_time",
+          "article:published_time",
+        ])
+
+        return {
+          ...item,
+          title: detailTitle || item.title,
+          sourceType:
+            htmlMetaValue(detailBody, ["article:section"]) || item.sourceType,
+          year: parseYear(publishedAt),
+          actors: htmlMetaValue(detailBody, ["video:actor"]),
+          directors: htmlMetaValue(detailBody, ["video:director"]),
+          description: htmlMetaValue(detailBody, ["description"]),
+          posterUrl: resolveUrl(
+            htmlMetaValue(detailBody, ["og:image"]),
+            config.siteBase
+          ),
+          sourceUpdatedAt: parseDate(publishedAt) ?? item.sourceUpdatedAt,
+          playLines: extractUuzyPlayLines(detailBody),
+        }
+      } catch {
+        return item
+      }
+    })
+  )
+
+  return {
+    items,
+    page,
+    pageCount,
+    totalItems,
+  } satisfies SourcePage
 }
 
 async function fetchXmlItems(config: SourceConfig, page: number) {
@@ -479,9 +628,9 @@ async function fetchJsonItems(config: SourceConfig, page: number) {
 }
 
 async function fetchSourceItems(config: SourceConfig, page: number) {
-  return config.format === "xml"
-    ? fetchXmlItems(config, page)
-    : fetchJsonItems(config, page)
+  if (config.format === "xml") return fetchXmlItems(config, page)
+  if (config.format === "json") return fetchJsonItems(config, page)
+  return fetchUuzyItems(config, page)
 }
 
 function uniqueItems(items: ResourceItem[]) {
@@ -539,6 +688,28 @@ async function syncSourcePage(
   try {
     const sourcePage = await fetchSourceItems(config, page)
     const items = uniqueItems(sourcePage.items)
+
+    if (sourceKey === "uuzy") {
+      for (const item of items) {
+        await environment.DB.prepare(
+          `UPDATE movie_sources
+              SET source_id = ?, detail_url = ?
+            WHERE source_key = ?
+              AND title = ?
+              AND source_id != ?
+              AND source_id GLOB '[0-9]*'`
+        )
+          .bind(
+            item.sourceId,
+            item.detailUrl,
+            item.sourceKey,
+            item.title,
+            item.sourceId
+          )
+          .run()
+      }
+    }
+
     const statements = items.map((item) =>
       environment.DB.prepare(
         `INSERT INTO movie_sources (
@@ -847,7 +1018,8 @@ export async function processFullSyncBatch(
     let error: string | null = null
     let pagesProcessed = 0
 
-    for (; pagesProcessed < pagesPerSource; pagesProcessed += 1) {
+    const sourcePagesPerBatch = key === "uuzy" ? 1 : pagesPerSource
+    for (; pagesProcessed < sourcePagesPerBatch; pagesProcessed += 1) {
       if (pageCount && nextPage > pageCount) {
         status = "completed"
         nextPage = 1
