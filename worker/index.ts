@@ -1,7 +1,14 @@
 import handler from "vinext/server/fetch-handler"
 import { runWithExecutionContext } from "vinext/shims/request-context"
 
-import { runScheduledSync } from "../lib/resource-sources"
+import {
+  runScheduledSync,
+  SOURCE_KEYS,
+  type SourceKey,
+} from "../lib/resource-sources"
+
+const ALL_SOURCES_CRON = "*/15 * * * *"
+const UUZY_CRON = "*/5 * * * *"
 
 const worker = {
   fetch(
@@ -16,9 +23,15 @@ const worker = {
 
   async scheduled(controller: ScheduledController, environment: CloudflareEnv) {
     const startedAt = Date.now()
+    const sourceKeys: SourceKey[] =
+      controller.cron === UUZY_CRON
+        ? ["uuzy"]
+        : controller.cron === ALL_SOURCES_CRON
+          ? ["xigua", "wsyzy"]
+          : SOURCE_KEYS
 
     try {
-      const results = await runScheduledSync(environment)
+      const results = await runScheduledSync(environment, sourceKeys)
       const summary = results.map((result) => ({
         sourceKey: result.sourceKey,
         status: result.status,
@@ -32,6 +45,7 @@ const worker = {
         cron: controller.cron,
         scheduledTime: new Date(controller.scheduledTime).toISOString(),
         durationMs: Date.now() - startedAt,
+        sourceKeys,
         failedSources: summary
           .filter((result) => !result.ok)
           .map((result) => result.sourceKey),

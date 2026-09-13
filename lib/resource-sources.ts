@@ -773,6 +773,11 @@ type SyncRunRow = {
 }
 
 const FULL_SYNC_PAGES_PER_BATCH = 5
+const SOURCE_SCHEDULE_INTERVAL_MINUTES: Record<SourceKey, number> = {
+  xigua: 15,
+  wsyzy: 15,
+  uuzy: 5,
+}
 
 async function syncSourcePage(
   environment: { DB: D1Database },
@@ -996,6 +1001,7 @@ function toSyncProgress(
     ? Math.max(0, run.page_count - currentPage)
     : null
   const pagesPerBatch = sourceKey === "uuzy" ? 1 : 5
+  const scheduleIntervalMinutes = SOURCE_SCHEDULE_INTERVAL_MINUTES[sourceKey]
 
   return {
     sourceKey,
@@ -1008,7 +1014,7 @@ function toSyncProgress(
     estimatedMinutesRemaining:
       pagesRemaining === null
         ? null
-        : Math.ceil((pagesRemaining / pagesPerBatch) * 15),
+        : Math.ceil((pagesRemaining / pagesPerBatch) * scheduleIntervalMinutes),
     totalItems: run.total_items,
     itemsSyncedTotal: run.items_synced_total,
     lastRunAt: run.last_run_at,
@@ -1257,7 +1263,10 @@ export async function resumeFullSync(
   return getSyncProgress(environment, sourceKey)
 }
 
-export async function runScheduledSync(environment: { DB: D1Database }) {
-  for (const key of SOURCE_KEYS) await setFullSyncRun(environment, key, false)
-  return processFullSyncBatch(environment)
+export async function runScheduledSync(
+  environment: { DB: D1Database },
+  sourceKeys: SourceKey[] = SOURCE_KEYS
+) {
+  for (const key of sourceKeys) await setFullSyncRun(environment, key, false)
+  return processFullSyncBatch(environment, { sourceKeys })
 }

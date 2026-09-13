@@ -12,7 +12,7 @@
 - D1 影片列表、影片详情和健康检查 API
 - 三个资源站的元数据与外部播放链接同步：西瓜资源、无水印资源网、UUZY
 - ApiZero 生产环境豆瓣资料同步，支持将资源站记录映射到豆瓣 ID
-- Cloudflare Cron 每 15 分钟分批推进三个资源站的全量同步任务，支持 D1 游标断点续传
+- Cloudflare Cron 分批推进三个资源站的全量同步任务：西瓜/无水印每 15 分钟，UUZY 每 5 分钟，支持 D1 游标断点续传
 - Skeleton 加载态和 D1 不可用时的本地 fallback 数据
 - shadcn/ui 官方 Base UI 组件：Button、Badge、Card、Dialog、Input、ScrollArea、Skeleton、Separator、ToggleGroup
 
