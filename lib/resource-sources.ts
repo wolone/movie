@@ -1291,7 +1291,10 @@ async function updateFullSyncProgress(
 ) {
   await environment.DB.prepare(
     `UPDATE source_sync_runs
-        SET sync_status = ?,
+        SET sync_status = CASE
+              WHEN sync_status = 'paused' THEN 'paused'
+              ELSE ?
+            END,
             sync_mode = 'full',
             next_page = ?,
             page_count = ?,
@@ -1393,6 +1396,11 @@ export async function processFullSyncBatch(
             totalItems,
             itemsSyncedTotal,
           })
+
+          if ((await getSyncRun(environment, key))?.sync_status === "paused") {
+            status = "paused"
+            break
+          }
         } catch (syncError) {
           status = "error"
           error =
