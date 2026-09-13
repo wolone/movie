@@ -39,7 +39,8 @@ type SourcePage = {
   totalItems: number
 }
 
-export type SyncProgressStatus = "idle" | "running" | "completed" | "error"
+export type SyncProgressStatus =
+  "idle" | "running" | "paused" | "completed" | "error"
 
 export type SyncProgress = {
   sourceKey: SourceKey
@@ -918,6 +919,8 @@ async function setFullSyncRun(
   const now = new Date().toISOString()
   const run = await getSyncRun(environment, sourceKey)
 
+  if (!reset && run?.sync_status === "paused") return
+
   if (reset || !run || run.sync_status === "completed") {
     await environment.DB.prepare(
       `INSERT INTO source_sync_runs (
@@ -1095,6 +1098,45 @@ export async function startFullSync(
   const keys = sourceKey ? [sourceKey] : SOURCE_KEYS
   for (const key of keys) await setFullSyncRun(environment, key, true)
   return processFullSyncBatch(environment, { sourceKeys: keys })
+}
+
+export async function pauseFullSync(
+  environment: { DB: D1Database },
+  sourceKey?: SourceKey
+) {
+  const keys = sourceKey ? [sourceKey] : SOURCE_KEYS
+  for (const key of keys) {
+    await environment.DB.prepare(
+      `UPDATE source_sync_runs
+          SET sync_status = 'paused'
+        WHERE source_key = ?
+          AND sync_status = 'running'`
+    )
+      .bind(key)
+      .run()
+  }
+
+  return getSyncProgress(environment, sourceKey)
+}
+
+export async function resumeFullSync(
+  environment: { DB: D1Database },
+  sourceKey?: SourceKey
+) {
+  const keys = sourceKey ? [sourceKey] : SOURCE_KEYS
+  for (const key of keys) {
+    await environment.DB.prepare(
+      `UPDATE source_sync_runs
+          SET sync_status = 'running', last_error = NULL
+        WHERE source_key = ?
+          AND sync_status = 'paused'`
+    )
+      .bind(key)
+      .run()
+  }
+
+  await processFullSyncBatch(environment, { sourceKeys: keys })
+  return getSyncProgress(environment, sourceKey)
 }
 
 export async function runScheduledSync(environment: { DB: D1Database }) {

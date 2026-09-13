@@ -1,8 +1,10 @@
 import { env } from "cloudflare:workers"
 
 import {
-  isSourceKey,
   getSyncProgress,
+  isSourceKey,
+  pauseFullSync,
+  resumeFullSync,
   startFullSync,
   syncAllSources,
   type SourceKey,
@@ -37,6 +39,28 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (mode === "pause") {
+      return Response.json({
+        ok: true,
+        mode,
+        results: await pauseFullSync(
+          env,
+          sourceParam ? (sourceParam as SourceKey) : undefined
+        ),
+      })
+    }
+
+    if (mode === "resume") {
+      return Response.json({
+        ok: true,
+        mode,
+        results: await resumeFullSync(
+          env,
+          sourceParam ? (sourceParam as SourceKey) : undefined
+        ),
+      })
+    }
+
     if (mode === "full") {
       const results = await startFullSync(
         env,

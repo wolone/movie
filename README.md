@@ -93,10 +93,12 @@ GET /api/sync
 POST /api/sync?source=xigua&page=1
 POST /api/sync?mode=full&source=xigua
 POST /api/sync?mode=full
+POST /api/sync?mode=pause&source=xigua
+POST /api/sync?mode=resume&source=xigua
 POST /api/catalog/sync
 ```
 
-资源管理页面：<https://movie.71954466.workers.dev/admin>。页面提供“全量同步当前”和“全量同步全部”按钮，任务会分批执行并显示进度。
+资源管理页面：<https://movie.71954466.workers.dev/admin>。页面提供“全量同步当前”和“全量同步全部”按钮，任务会分批执行并显示进度，也可以对单个资源站暂停和继续。
 
 `/api/sync` 为公开的手动同步入口。`/api/catalog/sync` 接收以下 JSON：
 

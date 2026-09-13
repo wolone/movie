@@ -8,6 +8,8 @@ import {
   ChevronRight,
   Link2,
   LoaderCircle,
+  Pause,
+  Play,
   RefreshCw,
   Search,
 } from "lucide-react"
@@ -60,11 +62,11 @@ type SourceResponse = {
 
 type SyncResponse = {
   ok: boolean
-  mode: "full" | "page"
+  mode: "full" | "page" | "pause" | "resume"
   results: Array<{
     ok: boolean
     sourceKey: string
-    status?: "idle" | "running" | "completed" | "error"
+    status?: "idle" | "running" | "paused" | "completed" | "error"
     pagesProcessed?: number
     itemsSynced?: number
     itemsSyncedTotal?: number
@@ -77,7 +79,7 @@ type SyncResponse = {
 type SyncProgress = {
   sourceKey: SourceKey
   sourceName: string
-  status: "idle" | "running" | "completed" | "error"
+  status: "idle" | "running" | "paused" | "completed" | "error"
   nextPage: number
   lastPage: number
   pageCount: number | null
@@ -92,6 +94,7 @@ function syncStatusLabel(status: SyncProgress["status"]) {
   return {
     idle: "未启动",
     running: "同步中",
+    paused: "已暂停",
     completed: "本轮完成",
     error: "需要重试",
   }[status]
@@ -125,6 +128,9 @@ export function ResourceManager() {
   const [submittingId, setSubmittingId] = useState<string | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
   const [syncProgress, setSyncProgress] = useState<SyncProgress[]>([])
+  const [controllingSource, setControllingSource] = useState<SourceKey | null>(
+    null
+  )
 
   const loadResources = useCallback(async () => {
     setIsLoading(true)
@@ -249,6 +255,54 @@ export function ResourceManager() {
       )
     } finally {
       setIsSyncing(false)
+    }
+  }
+
+  async function controlSync(
+    targetSource: SourceKey,
+    action: "pause" | "resume"
+  ) {
+    setControllingSource(targetSource)
+    setError("")
+    setNotice("")
+
+    const params = new URLSearchParams({
+      mode: action,
+      source: targetSource,
+    })
+
+    try {
+      const response = await fetch(`/api/sync?${params.toString()}`, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      })
+      const payload = (await response.json()) as
+        | { ok: boolean; results: SyncProgress[]; error?: string }
+        | { error?: string }
+
+      if (!response.ok || !("results" in payload)) {
+        throw new Error("error" in payload ? payload.error : "同步任务操作失败")
+      }
+
+      setSyncProgress((current) =>
+        current.map(
+          (item) =>
+            payload.results.find(
+              (result) => result.sourceKey === item.sourceKey
+            ) ?? item
+        )
+      )
+      setNotice(
+        action === "pause" ? "已暂停当前资源站同步。" : "已继续当前资源站同步。"
+      )
+    } catch (controlError) {
+      setError(
+        controlError instanceof Error
+          ? controlError.message
+          : "同步任务操作失败"
+      )
+    } finally {
+      setControllingSource(null)
     }
   }
 
@@ -421,6 +475,32 @@ export function ResourceManager() {
                   <p className="mt-2 text-xs text-destructive">
                     {item.lastError}
                   </p>
+                )}
+                {(item.status === "running" || item.status === "paused") && (
+                  <Button
+                    className="mt-3"
+                    disabled={controllingSource === item.sourceKey}
+                    onClick={() =>
+                      void controlSync(
+                        item.sourceKey,
+                        item.status === "paused" ? "resume" : "pause"
+                      )
+                    }
+                    size="sm"
+                    variant="outline"
+                  >
+                    {controllingSource === item.sourceKey ? (
+                      <LoaderCircle
+                        className="animate-spin"
+                        data-icon="inline-start"
+                      />
+                    ) : item.status === "paused" ? (
+                      <Play data-icon="inline-start" />
+                    ) : (
+                      <Pause data-icon="inline-start" />
+                    )}
+                    {item.status === "paused" ? "继续同步" : "暂停同步"}
+                  </Button>
                 )}
               </div>
             ))}
