@@ -1205,7 +1205,7 @@ export async function startFullSync(
   sourceKey?: SourceKey
 ) {
   const keys = sourceKey ? [sourceKey] : SOURCE_KEYS
-  for (const key of keys) await setFullSyncRun(environment, key, true)
+  for (const key of keys) await setFullSyncRun(environment, key, false)
   return processFullSyncBatch(environment, { sourceKeys: keys })
 }
 
