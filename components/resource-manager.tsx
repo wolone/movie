@@ -365,8 +365,16 @@ export function ResourceManager() {
             资源站与豆瓣映射
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-            先从资源站找到影片，再输入豆瓣 ID
-            或豆瓣链接。同步完成后，影片详情页会显示对应播放资源。
+            先从资源站找到影片，再输入豆瓣 ID 或豆瓣链接。ApiZero 当前按 ID
+            或链接查询，不会根据标题自动猜测；同步完成后，影片详情页会显示对应播放资源。
+            <a
+              className="ml-1 underline underline-offset-4 hover:text-foreground"
+              href="https://apizero.cn/marketplace/douban-movie"
+              rel="noreferrer"
+              target="_blank"
+            >
+              查看接口说明
+            </a>
           </p>
         </div>
         <Button onClick={() => router.push("/")} variant="outline">
