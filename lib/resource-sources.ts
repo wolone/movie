@@ -279,6 +279,16 @@ function parseDate(value: string) {
   return Number.isNaN(date.getTime()) ? cleaned : date.toISOString()
 }
 
+function parseUuzyDate(value: string) {
+  const cleaned = cleanText(value)
+  if (!cleaned) return null
+
+  const normalized = /(?:z|[+-]\d{2}:?\d{2})$/i.test(cleaned)
+    ? cleaned
+    : `${cleaned.replace(" ", "T")}+07:00`
+  return parseDate(normalized)
+}
+
 function normalizeXmlItem(block: string, config: SourceConfig): ResourceItem {
   const sourceId = getXmlTag(block, ["vod_id", "id"])
   const title = getXmlTag(block, ["vod_name", "name"])
@@ -567,7 +577,7 @@ async function fetchUuzyItems(
       directors: "",
       description: "",
       posterUrl: "",
-      sourceUpdatedAt: parseDate(cells[3] ?? ""),
+      sourceUpdatedAt: parseUuzyDate(cells[4] ?? ""),
       playLines: [],
       detailUrl,
     } satisfies ResourceItem
@@ -598,6 +608,7 @@ async function fetchUuzyItems(
         cached &&
         cached.title === item.title &&
         cached.status_note === item.note &&
+        cached.source_updated_at === item.sourceUpdatedAt &&
         cached.play_lines !== "[]"
       ) {
         let playLines: ResourceItem["playLines"] = []
