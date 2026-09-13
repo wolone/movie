@@ -497,7 +497,7 @@ export function ResourceManager() {
             <CardTitle className="text-base">全量同步进度</CardTitle>
             <CardDescription>
               西瓜每 15 分钟最多处理 15 页，无水印每 5 分钟最多处理 15 页，UUZY
-              每 5 分钟处理 1 页；任务支持断点续传。
+              每 5 分钟错峰处理 1 页；任务支持断点续传。
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-3">

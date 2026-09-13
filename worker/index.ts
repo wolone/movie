@@ -1,14 +1,17 @@
 import handler from "vinext/server/fetch-handler"
 import { runWithExecutionContext } from "vinext/shims/request-context"
 
-import {
-  runScheduledSync,
-  SOURCE_KEYS,
-  type SourceKey,
-} from "../lib/resource-sources"
+import { runScheduledSync, type SourceKey } from "../lib/resource-sources"
 
 const XIGUA_CRON = "*/15 * * * *"
-const FREQUENT_SOURCES_CRON = "*/5 * * * *"
+const WSYZY_CRON = "*/5 * * * *"
+const UUZY_CRON = "2-59/5 * * * *"
+
+const SOURCE_KEYS_BY_CRON: Record<string, SourceKey[]> = {
+  [XIGUA_CRON]: ["xigua"],
+  [WSYZY_CRON]: ["wsyzy"],
+  [UUZY_CRON]: ["uuzy"],
+}
 
 const worker = {
   fetch(
@@ -23,12 +26,14 @@ const worker = {
 
   async scheduled(controller: ScheduledController, environment: CloudflareEnv) {
     const startedAt = Date.now()
-    const sourceKeys: SourceKey[] =
-      controller.cron === FREQUENT_SOURCES_CRON
-        ? ["wsyzy", "uuzy"]
-        : controller.cron === XIGUA_CRON
-          ? ["xigua"]
-          : SOURCE_KEYS
+    const sourceKeys = SOURCE_KEYS_BY_CRON[controller.cron] ?? []
+
+    if (sourceKeys.length === 0) {
+      console.error("resource sync cron has no source mapping", {
+        cron: controller.cron,
+      })
+      return
+    }
 
     try {
       const results = await runScheduledSync(environment, sourceKeys)
