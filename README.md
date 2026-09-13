@@ -12,7 +12,7 @@
 - D1 影片列表、影片详情和健康检查 API
 - 三个资源站的元数据与外部播放链接同步：西瓜资源、无水印资源网、UUZY
 - ApiZero 生产环境豆瓣资料同步，支持将资源站记录映射到豆瓣 ID
-- Cloudflare Cron 每 15 分钟同步一次资源首页
+- Cloudflare Cron 每 15 分钟分批推进三个资源站的全量同步任务，支持 D1 游标断点续传
 - Skeleton 加载态和 D1 不可用时的本地 fallback 数据
 - shadcn/ui 官方 Base UI 组件：Button、Badge、Card、Dialog、Input、ScrollArea、Skeleton、Separator、ToggleGroup
 
@@ -89,11 +89,14 @@ GET /api/movies?q=dune&category=科幻
 GET /api/movies/:slug
 GET /api/sources
 GET /api/sources?source=wsyzy&q=丰臣
+GET /api/sync
 POST /api/sync?source=xigua&page=1
+POST /api/sync?mode=full&source=xigua
+POST /api/sync?mode=full
 POST /api/catalog/sync
 ```
 
-资源管理页面：<https://movie.71954466.workers.dev/admin>。页面提供“同步当前”和“同步全部”按钮，也可以手动调用 `POST /api/sync`。
+资源管理页面：<https://movie.71954466.workers.dev/admin>。页面提供“全量同步当前”和“全量同步全部”按钮，任务会分批执行并显示进度。
 
 `/api/sync` 为公开的手动同步入口。`/api/catalog/sync` 接收以下 JSON：
 
@@ -105,7 +108,7 @@ POST /api/catalog/sync
 }
 ```
 
-三个资源站不提供稳定的豆瓣 ID，ApiZero 当前公开接口也按豆瓣 ID 或豆瓣 URL查询，因此资源采集与豆瓣关联是两个步骤，不会在生产环境做未经确认的标题猜测。UUZY 当前接口行为只稳定返回首页，定时任务因此只同步每个资源站的第 1 页；需要更多页时可手动传入 `page`。
+三个资源站不提供稳定的豆瓣 ID，ApiZero 当前公开接口也按豆瓣 ID 或豆瓣 URL查询，因此资源采集与豆瓣关联是两个步骤，不会在生产环境做未经确认的标题猜测。西瓜资源和无水印资源网会依据接口返回的 `pagecount` 分页同步；UUZY 当前接口虽然返回 `pagecount`，但忽略 `pg` 参数并重复返回首页，因此暂时只能同步 UUZY 接口实际返回的资源。
 
 `GET /api/sources?source=<sourceKey>` 可以分页查看已采集资源的标题、`sourceId` 和播放链接；拿到确认过的资源 ID 后，再调用 `/api/catalog/sync` 完成豆瓣映射。
 

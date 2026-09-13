@@ -1,7 +1,7 @@
 import handler from "vinext/server/fetch-handler"
 import { runWithExecutionContext } from "vinext/shims/request-context"
 
-import { syncAllSources } from "../lib/resource-sources"
+import { runScheduledSync } from "../lib/resource-sources"
 
 const worker = {
   fetch(
@@ -18,7 +18,7 @@ const worker = {
     _controller: ScheduledController,
     environment: CloudflareEnv
   ) {
-    await syncAllSources(environment)
+    await runScheduledSync(environment)
   },
 }
 

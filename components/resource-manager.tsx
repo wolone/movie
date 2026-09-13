@@ -60,12 +60,41 @@ type SourceResponse = {
 
 type SyncResponse = {
   ok: boolean
+  mode: "full" | "page"
   results: Array<{
     ok: boolean
     sourceKey: string
+    status?: "idle" | "running" | "completed" | "error"
+    pagesProcessed?: number
     itemsSynced?: number
+    itemsSyncedTotal?: number
+    nextPage?: number
+    pageCount?: number | null
     error?: string
   }>
+}
+
+type SyncProgress = {
+  sourceKey: SourceKey
+  sourceName: string
+  status: "idle" | "running" | "completed" | "error"
+  nextPage: number
+  lastPage: number
+  pageCount: number | null
+  totalItems: number | null
+  itemsSyncedTotal: number
+  lastRunAt: string | null
+  lastSuccessAt: string | null
+  lastError: string | null
+}
+
+function syncStatusLabel(status: SyncProgress["status"]) {
+  return {
+    idle: "未启动",
+    running: "同步中",
+    completed: "本轮完成",
+    error: "需要重试",
+  }[status]
 }
 
 function formatDate(value: string | null) {
@@ -95,6 +124,7 @@ export function ResourceManager() {
   const [doubanIds, setDoubanIds] = useState<Record<string, string>>({})
   const [submittingId, setSubmittingId] = useState<string | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [syncProgress, setSyncProgress] = useState<SyncProgress[]>([])
 
   const loadResources = useCallback(async () => {
     setIsLoading(true)
@@ -126,6 +156,18 @@ export function ResourceManager() {
     }
   }, [activeQuery, page, sourceKey])
 
+  const loadSyncProgress = useCallback(async () => {
+    try {
+      const response = await fetch("/api/sync", {
+        headers: { Accept: "application/json" },
+      })
+      if (!response.ok) return
+      setSyncProgress((await response.json()) as SyncProgress[])
+    } catch {
+      // The resource list remains usable when the optional progress request fails.
+    }
+  }, [])
+
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       void loadResources()
@@ -133,6 +175,24 @@ export function ResourceManager() {
 
     return () => window.clearTimeout(timeoutId)
   }, [loadResources])
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadSyncProgress()
+    }, 0)
+    if (!syncProgress.some((item) => item.status === "running")) {
+      return () => window.clearTimeout(timeoutId)
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadSyncProgress()
+    }, 10_000)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+      window.clearInterval(intervalId)
+    }
+  }, [loadSyncProgress, syncProgress])
 
   function submitSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -154,7 +214,7 @@ export function ResourceManager() {
     setError("")
     setNotice("")
 
-    const params = new URLSearchParams({ page: "1" })
+    const params = new URLSearchParams({ mode: "full" })
     if (targetSource) params.set("source", targetSource)
 
     try {
@@ -171,16 +231,18 @@ export function ResourceManager() {
 
       const successful = payload.results.filter((result) => result.ok)
       const failed = payload.results.filter((result) => !result.ok)
-      const count = successful.reduce(
-        (total, result) => total + (result.itemsSynced ?? 0),
+      const pages = successful.reduce(
+        (total, result) => total + (result.pagesProcessed ?? 0),
         0
       )
       const failureText = failed.length
         ? `，失败：${failed.map((result) => result.sourceKey).join("、")}`
         : ""
 
-      setNotice(`同步完成，共更新 ${count} 条资源${failureText}。`)
-      await loadResources()
+      setNotice(
+        `全量同步任务已启动，本次处理 ${pages} 页，后续由 Cron 继续执行${failureText}。`
+      )
+      await Promise.all([loadResources(), loadSyncProgress()])
     } catch (syncError) {
       setError(
         syncError instanceof Error ? syncError.message : "资源站同步失败"
@@ -227,6 +289,7 @@ export function ResourceManager() {
   }
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.limit)) : 1
+  const hasRunningSync = syncProgress.some((item) => item.status === "running")
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
@@ -287,7 +350,7 @@ export function ResourceManager() {
         </span>
         <div className="flex flex-wrap gap-2">
           <Button
-            disabled={isLoading || isSyncing}
+            disabled={isLoading || isSyncing || hasRunningSync}
             onClick={() => void syncResources(sourceKey)}
             size="sm"
             variant="outline"
@@ -297,15 +360,15 @@ export function ResourceManager() {
             ) : (
               <RefreshCw data-icon="inline-start" />
             )}
-            同步当前
+            全量同步当前
           </Button>
           <Button
-            disabled={isLoading || isSyncing}
+            disabled={isLoading || isSyncing || hasRunningSync}
             onClick={() => void syncResources()}
             size="sm"
             variant="secondary"
           >
-            同步全部
+            全量同步全部
           </Button>
           <Button
             disabled={isLoading || isSyncing}
@@ -317,6 +380,50 @@ export function ResourceManager() {
           </Button>
         </div>
       </div>
+
+      {syncProgress.length > 0 && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="text-base">全量同步进度</CardTitle>
+            <CardDescription>
+              每次 Cron 最多处理每个资源站 5 页，任务支持断点续传。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-3">
+            {syncProgress.map((item) => (
+              <div
+                className="rounded-xl border bg-muted/20 p-4"
+                key={item.sourceKey}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium">{item.sourceName}</p>
+                  <Badge
+                    variant={
+                      item.status === "error" ? "destructive" : "secondary"
+                    }
+                  >
+                    {syncStatusLabel(item.status)}
+                  </Badge>
+                </div>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  已处理 {item.itemsSyncedTotal} 条 · 第 {item.lastPage || 0} 页
+                  {item.pageCount ? ` / ${item.pageCount}` : ""}
+                </p>
+                {item.status === "running" && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    下一页：{item.nextPage}
+                  </p>
+                )}
+                {item.lastError && (
+                  <p className="mt-2 text-xs text-destructive">
+                    {item.lastError}
+                  </p>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {notice && (
         <div className="mt-4 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary">
