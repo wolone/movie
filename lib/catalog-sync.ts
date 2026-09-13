@@ -3,7 +3,6 @@ import type { SourceKey } from "@/lib/resource-sources"
 
 type CatalogEnvironment = {
   DB: D1Database
-  DOUBAN_API_KEY?: string
 }
 
 type SourceMapping = {
@@ -22,10 +21,7 @@ export async function syncDoubanCatalogMovie(
     source?: SourceMapping
   }
 ) {
-  const metadata = await fetchDoubanMovie(
-    { DOUBAN_API_KEY: environment.DOUBAN_API_KEY },
-    input.doubanInput
-  )
+  const metadata = await fetchDoubanMovie(input.doubanInput)
   const doubanId = metadata.doubanId || doubanIdFromInput(input.doubanInput)
   const syncedAt = new Date().toISOString()
   let source: {

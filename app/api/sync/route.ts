@@ -5,28 +5,10 @@ import {
   syncAllSources,
   type SourceKey,
 } from "@/lib/resource-sources"
-import { hasSyncAccess, isLocalRequest } from "@/lib/sync-auth"
 
 export const dynamic = "force-dynamic"
 
-type SyncEnvironment = CloudflareEnv & {
-  SYNC_SECRET?: string
-}
-
 export async function POST(request: Request) {
-  const runtimeEnv = env as SyncEnvironment
-
-  if (!runtimeEnv.SYNC_SECRET && !isLocalRequest(request)) {
-    return Response.json(
-      { error: "SYNC_SECRET is not configured" },
-      { status: 503 }
-    )
-  }
-
-  if (!hasSyncAccess(request, runtimeEnv.SYNC_SECRET)) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
   const { searchParams } = new URL(request.url)
   const sourceParam = searchParams.get("source")
   const page = Number.parseInt(searchParams.get("page") ?? "1", 10)
@@ -36,7 +18,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const results = await syncAllSources(runtimeEnv, {
+    const results = await syncAllSources(env, {
       page: Number.isFinite(page) ? page : 1,
       sourceKey: sourceParam ? (sourceParam as SourceKey) : undefined,
     })

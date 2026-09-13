@@ -72,15 +72,7 @@ pnpm run deploy:vinext
 pnpm wrangler d1 migrations apply movie --remote
 ```
 
-生产环境密钥通过 Cloudflare Secret 注入，不写入仓库：
-
-```bash
-pnpm wrangler secret put DOUBAN_API_KEY
-pnpm wrangler secret put SYNC_SECRET
-pnpm wrangler secret put CATALOG_SYNC_SECRET
-```
-
-`DOUBAN_API_KEY` 用于 ApiZero 豆瓣资料服务；没有密钥时仅适合本地调试或 ApiZero 的匿名额度。同步接口在生产环境必须配置对应的 Secret。
+ApiZero 资料接口按当前生产配置直接使用公开接口，不需要额外 API Key。
 
 当前 Cloudflare 资源：
 
@@ -100,7 +92,7 @@ POST /api/sync?source=xigua&page=1
 POST /api/catalog/sync
 ```
 
-`/api/sync` 使用 `Authorization: Bearer <SYNC_SECRET>` 或 `X-Sync-Secret`。`/api/catalog/sync` 接收以下 JSON，并使用 `CATALOG_SYNC_SECRET`：
+`/api/sync` 为公开的手动同步入口。`/api/catalog/sync` 接收以下 JSON：
 
 ```json
 {

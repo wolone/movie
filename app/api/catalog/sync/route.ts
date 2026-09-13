@@ -2,29 +2,10 @@ import { env } from "cloudflare:workers"
 
 import { syncDoubanCatalogMovie } from "@/lib/catalog-sync"
 import { isSourceKey } from "@/lib/resource-sources"
-import { hasSyncAccess, isLocalRequest } from "@/lib/sync-auth"
 
 export const dynamic = "force-dynamic"
 
-type CatalogSyncEnvironment = CloudflareEnv & {
-  CATALOG_SYNC_SECRET?: string
-  DOUBAN_API_KEY?: string
-}
-
 export async function POST(request: Request) {
-  const runtimeEnv = env as CatalogSyncEnvironment
-
-  if (!runtimeEnv.CATALOG_SYNC_SECRET && !isLocalRequest(request)) {
-    return Response.json(
-      { error: "CATALOG_SYNC_SECRET is not configured" },
-      { status: 503 }
-    )
-  }
-
-  if (!hasSyncAccess(request, runtimeEnv.CATALOG_SYNC_SECRET)) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
   let body: unknown
   try {
     body = await request.json()
@@ -75,7 +56,7 @@ export async function POST(request: Request) {
   const validSourceKey = isSourceKey(sourceKey) ? sourceKey : undefined
 
   try {
-    const result = await syncDoubanCatalogMovie(runtimeEnv, {
+    const result = await syncDoubanCatalogMovie(env, {
       doubanInput: doubanId,
       source:
         validSourceKey && sourceId

@@ -37,10 +37,6 @@ type ApiZeroResponse = {
   }
 }
 
-type DoubanEnvironment = {
-  DOUBAN_API_KEY?: string
-}
-
 function splitValues(value = "") {
   return value
     .split(/[,，/、|]/)
@@ -69,16 +65,11 @@ export function doubanIdFromInput(input: string) {
 }
 
 export async function fetchDoubanMovie(
-  environment: DoubanEnvironment,
   input: string
 ): Promise<DoubanMovieMetadata> {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 15_000)
   const headers = new Headers({ Accept: "application/json" })
-
-  if (environment.DOUBAN_API_KEY) {
-    headers.set("Authorization", `Bearer ${environment.DOUBAN_API_KEY}`)
-  }
 
   try {
     const url = new URL(API_ENDPOINT)
