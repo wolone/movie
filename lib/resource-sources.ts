@@ -872,7 +872,7 @@ type SyncRunRow = {
 }
 
 const FULL_SYNC_PAGES_PER_BATCH = 15
-const WSYZY_FULL_SYNC_PAGES_PER_BATCH = 15
+const WSYZY_FULL_SYNC_PAGES_PER_BATCH = 20
 const SYNC_LEASE_MS = 2 * 60 * 1000
 const SOURCE_BATCH_PAGES: Record<SourceKey, number> = {
   xigua: FULL_SYNC_PAGES_PER_BATCH,
