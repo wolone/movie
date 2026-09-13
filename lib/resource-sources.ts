@@ -1,0 +1,553 @@
+export type SourceKey = "xigua" | "wsyzy" | "uuzy"
+
+export type ResourceItem = {
+  sourceKey: SourceKey
+  sourceName: string
+  sourceId: string
+  title: string
+  sourceType: string
+  area: string
+  language: string
+  year: number
+  note: string
+  actors: string
+  directors: string
+  description: string
+  posterUrl: string
+  sourceUpdatedAt: string | null
+  playLines: Array<{ name: string; url: string }>
+  detailUrl: string
+}
+
+type SourceConfig = {
+  key: SourceKey
+  name: string
+  listEndpoint: string
+  detailEndpoint: string
+  siteBase: string
+  format: "json" | "xml"
+  supportsPagination: boolean
+  preferredFlag: string
+}
+
+type JsonRecord = Record<string, unknown>
+
+export const SOURCE_CONFIGS: Record<SourceKey, SourceConfig> = {
+  xigua: {
+    key: "xigua",
+    name: "西瓜资源",
+    listEndpoint: "https://caiji.xgzyapi.com/api.php/provide/vod/at/xml/",
+    detailEndpoint: "https://caiji.xgzyapi.com/api.php/provide/vod/at/xml/",
+    siteBase: "https://xgzy.tv",
+    format: "xml",
+    supportsPagination: true,
+    preferredFlag: "xiguam3u8",
+  },
+  wsyzy: {
+    key: "wsyzy",
+    name: "无水印资源网",
+    listEndpoint: "https://api.wsyzy.net/api.php/provide/vod/?ac=list",
+    detailEndpoint: "https://api.wsyzy.net/api.php/provide/vod/",
+    siteBase: "https://wsyzy.cc",
+    format: "json",
+    supportsPagination: true,
+    preferredFlag: "wsym3u8",
+  },
+  uuzy: {
+    key: "uuzy",
+    name: "UUZY",
+    listEndpoint: "https://uuzy.me/api.php/provide/vod/from/snm3u8/at/xml",
+    detailEndpoint: "https://uuzy.me/api.php/provide/vod/from/snm3u8/at/xml",
+    siteBase: "https://uuzy.me",
+    format: "xml",
+    supportsPagination: false,
+    preferredFlag: "m3u8",
+  },
+}
+
+export const SOURCE_KEYS = Object.keys(SOURCE_CONFIGS) as SourceKey[]
+
+export function isSourceKey(
+  value: string | null | undefined
+): value is SourceKey {
+  return Boolean(value && SOURCE_KEYS.includes(value as SourceKey))
+}
+
+function decodeEntities(value: string) {
+  return value
+    .replace(/&#x([\da-f]+);/gi, (_, code: string) => {
+      return String.fromCodePoint(Number.parseInt(code, 16))
+    })
+    .replace(/&#(\d+);/g, (_, code: string) => {
+      return String.fromCodePoint(Number.parseInt(code, 10))
+    })
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&amp;/gi, "&")
+}
+
+function cleanText(value = "") {
+  let result = value.trim()
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const decoded = decodeEntities(result)
+    const withoutCdata = decoded
+      .replace(/^<!\[CDATA\[/i, "")
+      .replace(/\]\]>$/i, "")
+      .trim()
+
+    if (withoutCdata === result) break
+    result = withoutCdata
+  }
+
+  return result.trim()
+}
+
+function stripMarkup(value = "") {
+  return cleanText(value)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim()
+}
+
+function getXmlTag(block: string, names: string[]) {
+  for (const name of names) {
+    const match = block.match(
+      new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}>`, "i")
+    )
+    if (match?.[1]) return cleanText(match[1])
+  }
+
+  return ""
+}
+
+function extractXmlVideos(xml: string) {
+  return [...xml.matchAll(/<video\b[^>]*>[\s\S]*?<\/video>/gi)].map(
+    (match) => match[0]
+  )
+}
+
+function parseXmlPlayLines(block: string, preferredFlag: string) {
+  const lines: ResourceItem["playLines"] = []
+  const groups = [...block.matchAll(/<dd\b([^>]*)>([\s\S]*?)<\/dd>/gi)]
+
+  for (const group of groups) {
+    const attributes = group[1] ?? ""
+    const flag =
+      attributes.match(/\bflag\s*=\s*["']([^"']+)["']/i)?.[1] ?? preferredFlag
+    const content = cleanText(group[2] ?? "")
+
+    for (const [index, item] of content.split("#").entries()) {
+      const separator = item.lastIndexOf("$")
+      const label = cleanText(
+        separator > 0 ? item.slice(0, separator) : `第 ${index + 1} 集`
+      )
+      const url = cleanText(separator > 0 ? item.slice(separator + 1) : item)
+
+      if (/^https?:\/\//i.test(url)) {
+        lines.push({
+          name: flag === preferredFlag ? label : `${flag} · ${label}`,
+          url,
+        })
+      }
+    }
+  }
+
+  return lines
+}
+
+function parseDelimitedPlayLines(
+  playUrl: string,
+  playFrom: string,
+  preferredFlag: string
+) {
+  const lines: ResourceItem["playLines"] = []
+  const urlGroups = playUrl.split("$$$")
+  const nameGroups = playFrom.split("$$$")
+
+  for (const [groupIndex, group] of urlGroups.entries()) {
+    const flag = cleanText(nameGroups[groupIndex] || preferredFlag)
+
+    for (const [index, item] of group.split("#").entries()) {
+      const separator = item.lastIndexOf("$")
+      const label = cleanText(
+        separator > 0 ? item.slice(0, separator) : `第 ${index + 1} 集`
+      )
+      const url = cleanText(separator > 0 ? item.slice(separator + 1) : item)
+
+      if (/^https?:\/\//i.test(url)) {
+        lines.push({
+          name: flag === preferredFlag ? label : `${flag} · ${label}`,
+          url,
+        })
+      }
+    }
+  }
+
+  return lines
+}
+
+function resolveUrl(value: string, siteBase: string) {
+  const cleaned = cleanText(value)
+  if (!cleaned) return ""
+
+  try {
+    return new URL(cleaned, siteBase).toString()
+  } catch {
+    return ""
+  }
+}
+
+function firstJsonValue(record: JsonRecord, names: string[]) {
+  for (const name of names) {
+    const value = record[name]
+    if (value !== undefined && value !== null) return cleanText(String(value))
+  }
+
+  return ""
+}
+
+function jsonItems(payload: unknown): JsonRecord[] {
+  if (Array.isArray(payload)) return payload.filter(isJsonRecord)
+  if (!isJsonRecord(payload)) return []
+
+  for (const key of ["list", "data", "results", "items"]) {
+    const value = payload[key]
+    if (Array.isArray(value)) return value.filter(isJsonRecord)
+    if (isJsonRecord(value)) {
+      const nested = jsonItems(value)
+      if (nested.length > 0) return nested
+    }
+  }
+
+  return []
+}
+
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function parseJsonPlayLines(record: JsonRecord, preferredFlag: string) {
+  return parseDelimitedPlayLines(
+    firstJsonValue(record, ["vod_play_url", "play_url"]),
+    firstJsonValue(record, ["vod_play_from", "play_from"]) || preferredFlag,
+    preferredFlag
+  )
+}
+
+function parseYear(value: string) {
+  const year = Number.parseInt(value.match(/\d{4}/)?.[0] ?? "", 10)
+  return Number.isFinite(year) ? year : 0
+}
+
+function parseDate(value: string) {
+  const cleaned = cleanText(value)
+  if (!cleaned) return null
+
+  const date = new Date(cleaned)
+  return Number.isNaN(date.getTime()) ? cleaned : date.toISOString()
+}
+
+function normalizeXmlItem(block: string, config: SourceConfig): ResourceItem {
+  const sourceId = getXmlTag(block, ["vod_id", "id"])
+  const title = getXmlTag(block, ["vod_name", "name"])
+
+  return {
+    sourceKey: config.key,
+    sourceName: config.name,
+    sourceId,
+    title,
+    sourceType: getXmlTag(block, ["type_name", "vod_type_name", "type"]),
+    area: getXmlTag(block, ["vod_area", "area"]),
+    language: getXmlTag(block, ["vod_lang", "lang", "language"]),
+    year: parseYear(getXmlTag(block, ["vod_year", "year"])),
+    note: getXmlTag(block, ["vod_remarks", "vod_note", "remarks", "note"]),
+    actors: getXmlTag(block, ["vod_actor", "actor"]),
+    directors: getXmlTag(block, ["vod_director", "director"]),
+    description: stripMarkup(
+      getXmlTag(block, ["vod_content", "vod_blurb", "des", "description"])
+    ),
+    posterUrl: resolveUrl(
+      getXmlTag(block, ["vod_pic", "pic", "poster"]),
+      config.siteBase
+    ),
+    sourceUpdatedAt: parseDate(
+      getXmlTag(block, ["vod_time", "vod_time_add", "last", "update_time"])
+    ),
+    playLines: parseXmlPlayLines(block, config.preferredFlag),
+    detailUrl: `${config.siteBase}/index.php/vod/detail/id/${sourceId}.html`,
+  }
+}
+
+function normalizeJsonItem(
+  record: JsonRecord,
+  config: SourceConfig
+): ResourceItem {
+  const sourceId = firstJsonValue(record, ["vod_id", "id"])
+  const title = firstJsonValue(record, ["vod_name", "name", "title"])
+  const poster = firstJsonValue(record, ["vod_pic", "pic", "poster"])
+
+  return {
+    sourceKey: config.key,
+    sourceName: config.name,
+    sourceId,
+    title,
+    sourceType: firstJsonValue(record, ["type_name", "vod_type_name", "type"]),
+    area: firstJsonValue(record, ["vod_area", "area"]),
+    language: firstJsonValue(record, ["vod_lang", "lang", "language"]),
+    year: parseYear(firstJsonValue(record, ["vod_year", "year"])),
+    note: firstJsonValue(record, [
+      "vod_remarks",
+      "vod_note",
+      "remarks",
+      "note",
+    ]),
+    actors: firstJsonValue(record, ["vod_actor", "actor"]),
+    directors: firstJsonValue(record, ["vod_director", "director"]),
+    description: stripMarkup(
+      firstJsonValue(record, ["vod_content", "vod_blurb", "des", "description"])
+    ),
+    posterUrl: resolveUrl(poster, config.siteBase),
+    sourceUpdatedAt: parseDate(
+      firstJsonValue(record, [
+        "vod_time",
+        "vod_time_add",
+        "last",
+        "update_time",
+      ])
+    ),
+    playLines: parseJsonPlayLines(record, config.preferredFlag),
+    detailUrl: `${config.siteBase}/index.php/vod/detail/id/${sourceId}.html`,
+  }
+}
+
+function buildListUrl(config: SourceConfig, page: number) {
+  const url = new URL(config.listEndpoint)
+  if (config.supportsPagination) url.searchParams.set("pg", String(page))
+  return url
+}
+
+function buildDetailUrl(config: SourceConfig, ids: string[]) {
+  const url = new URL(config.detailEndpoint)
+  url.searchParams.set("ac", "detail")
+  url.searchParams.set("ids", ids.join(","))
+  return url
+}
+
+async function fetchBody(url: URL) {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 20_000)
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json, application/xml, text/xml;q=0.9, */*;q=0.8",
+        "User-Agent": "movie-worker-resource-sync/1.0",
+      },
+      signal: controller.signal,
+    })
+    const body = await response.text()
+    const trimmed = body.trim()
+    const validBody = trimmed.startsWith("<") || trimmed.startsWith("{")
+
+    if (!response.ok && !validBody) {
+      throw new Error(`Resource request failed: ${response.status} ${url}`)
+    }
+
+    if (!validBody) throw new Error(`Resource response was empty: ${url}`)
+    return body
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+async function fetchXmlItems(config: SourceConfig, page: number) {
+  const listBody = await fetchBody(buildListUrl(config, page))
+  const listBlocks = extractXmlVideos(listBody)
+
+  if (listBlocks.length === 0) {
+    throw new Error(`${config.name} 返回的 XML 没有影片记录`)
+  }
+
+  if (config.key === "uuzy") {
+    return listBlocks.map((block) => normalizeXmlItem(block, config))
+  }
+
+  const ids = listBlocks
+    .map((block) => getXmlTag(block, ["vod_id", "id"]))
+    .filter(Boolean)
+  if (ids.length === 0) return []
+
+  const detailBody = await fetchBody(buildDetailUrl(config, ids.slice(0, 50)))
+  const detailBlocks = extractXmlVideos(detailBody)
+  return (detailBlocks.length > 0 ? detailBlocks : listBlocks).map((block) =>
+    normalizeXmlItem(block, config)
+  )
+}
+
+async function fetchJsonItems(config: SourceConfig, page: number) {
+  const listUrl = buildListUrl(config, page)
+  const listBody = await fetchBody(listUrl)
+  const listPayload = JSON.parse(listBody) as unknown
+  const listRecords = jsonItems(listPayload)
+  if (listRecords.length === 0) {
+    throw new Error(`${config.name} 返回的 JSON 没有影片记录`)
+  }
+  const ids = listRecords
+    .map((record) => firstJsonValue(record, ["vod_id", "id"]))
+    .filter(Boolean)
+
+  if (ids.length === 0) return []
+
+  const detailBody = await fetchBody(buildDetailUrl(config, ids.slice(0, 50)))
+  const detailRecords = jsonItems(JSON.parse(detailBody) as unknown)
+  return (detailRecords.length > 0 ? detailRecords : listRecords).map(
+    (record) => normalizeJsonItem(record, config)
+  )
+}
+
+async function fetchSourceItems(config: SourceConfig, page: number) {
+  return config.format === "xml"
+    ? fetchXmlItems(config, page)
+    : fetchJsonItems(config, page)
+}
+
+function uniqueItems(items: ResourceItem[]) {
+  return [
+    ...new Map(
+      items.filter((item) => item.sourceId).map((item) => [item.sourceId, item])
+    ).values(),
+  ]
+}
+
+function chunks<T>(items: T[], size: number) {
+  const result: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    result.push(items.slice(index, index + size))
+  }
+  return result
+}
+
+export async function syncSource(
+  environment: { DB: D1Database },
+  sourceKey: SourceKey,
+  page = 1
+) {
+  const config = SOURCE_CONFIGS[sourceKey]
+  const startedAt = new Date().toISOString()
+
+  try {
+    const items = uniqueItems(await fetchSourceItems(config, page))
+    const statements = items.map((item) =>
+      environment.DB.prepare(
+        `INSERT INTO movie_sources (
+           source_key, source_name, source_id, title, source_type, source_area,
+           source_language, status_note, source_updated_at, poster_url,
+           play_lines, detail_url, synced_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(source_key, source_id) DO UPDATE SET
+           source_name = excluded.source_name,
+           title = excluded.title,
+           source_type = excluded.source_type,
+           source_area = excluded.source_area,
+           source_language = excluded.source_language,
+           status_note = excluded.status_note,
+           source_updated_at = excluded.source_updated_at,
+           poster_url = excluded.poster_url,
+           play_lines = excluded.play_lines,
+           detail_url = excluded.detail_url,
+           synced_at = excluded.synced_at,
+           douban_id = COALESCE(movie_sources.douban_id, excluded.douban_id)`
+      ).bind(
+        item.sourceKey,
+        item.sourceName,
+        item.sourceId,
+        item.title,
+        item.sourceType,
+        item.area,
+        item.language,
+        item.note,
+        item.sourceUpdatedAt,
+        item.posterUrl,
+        JSON.stringify(item.playLines),
+        item.detailUrl,
+        startedAt
+      )
+    )
+
+    for (const batch of chunks(statements, 50)) {
+      await environment.DB.batch(batch)
+    }
+
+    await environment.DB.prepare(
+      `INSERT INTO source_sync_runs (
+         source_key, last_page, last_run_at, last_success_at, last_error, items_synced
+       ) VALUES (?, ?, ?, ?, NULL, ?)
+       ON CONFLICT(source_key) DO UPDATE SET
+         last_page = excluded.last_page,
+         last_run_at = excluded.last_run_at,
+         last_success_at = excluded.last_success_at,
+         last_error = NULL,
+         items_synced = excluded.items_synced`
+    )
+      .bind(sourceKey, page, startedAt, startedAt, items.length)
+      .run()
+
+    return {
+      sourceKey,
+      sourceName: config.name,
+      page,
+      itemsSynced: items.length,
+      syncedAt: startedAt,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+
+    try {
+      await environment.DB.prepare(
+        `INSERT INTO source_sync_runs (
+           source_key, last_page, last_run_at, last_error
+         ) VALUES (?, ?, ?, ?)
+         ON CONFLICT(source_key) DO UPDATE SET
+           last_page = excluded.last_page,
+           last_run_at = excluded.last_run_at,
+           last_error = excluded.last_error`
+      )
+        .bind(sourceKey, page, startedAt, message.slice(0, 500))
+        .run()
+    } catch (runError) {
+      console.error("Unable to persist source sync failure", runError)
+    }
+
+    throw new Error(`${config.name} 同步失败：${message}`)
+  }
+}
+
+export async function syncAllSources(
+  environment: { DB: D1Database },
+  options: { page?: number; sourceKey?: SourceKey } = {}
+) {
+  const page = Math.max(1, Math.floor(options.page ?? 1))
+  const keys = options.sourceKey ? [options.sourceKey] : SOURCE_KEYS
+  const results: Array<
+    | (Awaited<ReturnType<typeof syncSource>> & { ok: true })
+    | { ok: false; sourceKey: SourceKey; error: string }
+  > = []
+
+  for (const key of keys) {
+    try {
+      results.push({ ok: true, ...(await syncSource(environment, key, page)) })
+    } catch (error) {
+      results.push({
+        ok: false,
+        sourceKey: key,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  return results
+}

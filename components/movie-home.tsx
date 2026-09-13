@@ -6,6 +6,7 @@ import {
   ArrowRight,
   Bell,
   ChevronRight,
+  ExternalLink,
   Info,
   Play,
   Search,
@@ -56,6 +57,7 @@ export function MovieHome() {
   const [isLoading, setIsLoading] = useState(true)
   const [source, setSource] = useState<"d1" | "fallback" | null>(null)
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null)
+  const [isDetailLoading, setIsDetailLoading] = useState(false)
 
   const loadMovies = useCallback(async () => {
     const params = new URLSearchParams()
@@ -130,6 +132,39 @@ export function MovieHome() {
   function clearSearch() {
     setQuery("")
     setActiveQuery("")
+  }
+
+  const openMovie = useCallback(async (movie: Movie) => {
+    setSelectedMovie(movie)
+    setIsDetailLoading(true)
+
+    try {
+      const response = await fetch(`/api/movies/${movie.slug}`, {
+        headers: { Accept: "application/json" },
+      })
+
+      if (!response.ok) return
+
+      const data = (await response.json()) as { movie: Movie }
+      if (data.movie) setSelectedMovie(data.movie)
+    } catch {
+      // Keep the list payload visible when the detail endpoint is unavailable.
+    } finally {
+      setIsDetailLoading(false)
+    }
+  }, [])
+
+  function playMovie(movie: Movie) {
+    const firstLine = movie.sources
+      ?.flatMap((source) => source.playLines)
+      .find((line) => /^https?:\/\//i.test(line.url))
+
+    if (firstLine) {
+      window.open(firstLine.url, "_blank", "noopener,noreferrer")
+      return
+    }
+
+    setSelectedMovie(null)
   }
 
   return (
@@ -231,15 +266,12 @@ export function MovieHome() {
                 {featuredMovie.tagline} {featuredMovie.description}
               </p>
               <div className="mt-7 flex flex-wrap items-center gap-3">
-                <Button
-                  onClick={() => setSelectedMovie(featuredMovie)}
-                  size="lg"
-                >
+                <Button onClick={() => void openMovie(featuredMovie)} size="lg">
                   <Play data-icon="inline-start" />
                   开始观看
                 </Button>
                 <Button
-                  onClick={() => setSelectedMovie(featuredMovie)}
+                  onClick={() => void openMovie(featuredMovie)}
                   size="lg"
                   variant="secondary"
                 >
@@ -330,7 +362,7 @@ export function MovieHome() {
                 <MovieSection
                   key={section.title}
                   movies={section.movies}
-                  onSelect={setSelectedMovie}
+                  onSelect={openMovie}
                   title={section.title}
                 />
               ))
@@ -422,10 +454,88 @@ export function MovieHome() {
                 <p className="text-sm leading-7 text-muted-foreground">
                   {selectedMovie.description}
                 </p>
+                <Separator />
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <h3 className="font-medium">播放资源</h3>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {selectedMovie.sources?.length
+                          ? `已关联 ${selectedMovie.sources.length} 个资源站`
+                          : "当前影片还没有关联播放资源"}
+                      </p>
+                    </div>
+                    {isDetailLoading && <Skeleton className="h-5 w-20" />}
+                  </div>
+                  {isDetailLoading ? (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Skeleton className="h-28 rounded-xl" />
+                      <Skeleton className="h-28 rounded-xl" />
+                    </div>
+                  ) : selectedMovie.sources?.length ? (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {selectedMovie.sources.map((resource) => (
+                        <Card
+                          key={`${resource.sourceKey}-${resource.sourceId}`}
+                        >
+                          <CardHeader className="gap-2 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <CardTitle className="text-sm">
+                                {resource.sourceName}
+                              </CardTitle>
+                              <Badge variant="outline">
+                                {resource.playLines.length} 集
+                              </Badge>
+                            </div>
+                            {resource.statusNote && (
+                              <p className="text-xs text-muted-foreground">
+                                {resource.statusNote}
+                              </p>
+                            )}
+                          </CardHeader>
+                          <CardContent className="p-4 pt-0">
+                            {resource.playLines.length > 0 ? (
+                              <ScrollArea className="max-h-32">
+                                <div className="flex flex-wrap gap-2 pr-3">
+                                  {resource.playLines.map((line) => (
+                                    <Button
+                                      key={`${resource.sourceKey}-${resource.sourceId}-${line.name}-${line.url}`}
+                                      onClick={() =>
+                                        window.open(
+                                          line.url,
+                                          "_blank",
+                                          "noopener,noreferrer"
+                                        )
+                                      }
+                                      size="sm"
+                                      variant="secondary"
+                                    >
+                                      {line.name}
+                                      <ExternalLink data-icon="inline-end" />
+                                    </Button>
+                                  ))}
+                                </div>
+                              </ScrollArea>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">
+                                暂无可用播放链接
+                              </p>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                      播放资源待映射。请先同步资源站，再用豆瓣 ID
+                      将资源关联到影片。
+                    </div>
+                  )}
+                </div>
                 <DialogFooter className="-mx-6 -mb-6 rounded-none border-t-0 bg-transparent p-0 pt-1 sm:justify-start">
-                  <Button onClick={() => setSelectedMovie(null)}>
+                  <Button onClick={() => playMovie(selectedMovie)}>
                     <Play data-icon="inline-start" />
-                    加入播放列表
+                    开始观看
                   </Button>
                   <Button
                     onClick={() => setSelectedMovie(null)}
@@ -489,14 +599,24 @@ function MovieCard({
           onClick={() => onSelect(movie)}
           type="button"
         >
-          {/* Remote posters intentionally use plain img for vinext/Workers delivery. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt={movie.title}
-            className="size-full object-cover transition-transform duration-500 group-hover:scale-105"
-            loading="lazy"
-            src={movie.posterUrl}
-          />
+          {movie.posterUrl ? (
+            <>
+              {/* Remote posters intentionally use plain img for vinext/Workers delivery. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt={movie.title}
+                className="size-full object-cover transition-transform duration-500 group-hover:scale-105"
+                loading="lazy"
+                src={movie.posterUrl}
+              />
+            </>
+          ) : (
+            <div className="flex size-full items-end bg-linear-to-br from-primary/30 via-muted to-background p-4">
+              <span className="line-clamp-3 text-left text-base font-medium whitespace-normal">
+                {movie.title}
+              </span>
+            </div>
+          )}
           <div className="absolute inset-0 bg-linear-to-t from-background/80 via-transparent to-transparent opacity-70" />
           <Badge className="absolute top-3 left-3" variant="secondary">
             {movie.rating}

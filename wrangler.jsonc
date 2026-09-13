@@ -2,27 +2,28 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "movie",
   "compatibility_date": "2026-09-13",
-  "compatibility_flags": [
-    "nodejs_compat"
-  ],
-  "main": "vinext/server/fetch-handler",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "worker/index.ts",
+  "triggers": {
+    "crons": ["*/15 * * * *"],
+  },
   "assets": {
     "directory": "dist/client",
     "not_found_handling": "none",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "movie",
       "database_id": "39e11c7a-16f8-416a-b6a4-c518e3536640",
-      "migrations_dir": "migrations"
-    }
+      "migrations_dir": "migrations",
+    },
   ],
   "cache": {
-    "enabled": true
+    "enabled": true,
   },
   "version_metadata": {
-    "binding": "CF_VERSION_METADATA"
-  }
+    "binding": "CF_VERSION_METADATA",
+  },
 }

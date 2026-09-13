@@ -14,6 +14,27 @@ export type Movie = {
   backdropUrl: string
   featured: boolean
   trendingRank: number | null
+  sourceKey?: string
+  sourceCount?: number
+  doubanId?: string
+  sources?: MovieResource[]
+}
+
+export type MovieResource = {
+  sourceKey: string
+  sourceName: string
+  sourceId: string
+  sourceType: string
+  sourceArea: string
+  sourceLanguage: string
+  statusNote: string
+  sourceUpdatedAt: string | null
+  posterUrl: string
+  detailUrl: string
+  playLines: Array<{
+    name: string
+    url: string
+  }>
 }
 
 export type MovieRow = {
@@ -32,6 +53,25 @@ export type MovieRow = {
   backdrop_url: string
   featured: number
   trending_rank: number | null
+  source_key?: string | null
+  source_count?: number | null
+  douban_id?: string | null
+  metadata_provider?: string | null
+  source_updated_at?: string | null
+}
+
+export type MovieResourceRow = {
+  source_key: string
+  source_name: string
+  source_id: string
+  source_type: string
+  source_area: string
+  source_language: string
+  status_note: string
+  source_updated_at: string | null
+  poster_url: string
+  detail_url: string
+  play_lines: string
 }
 
 const image = (id: string, width: number, height: number) =>
@@ -268,11 +308,47 @@ export function movieFromRow(row: MovieRow): Movie {
     rating: row.rating,
     durationMinutes: row.duration_minutes,
     maturity: row.maturity,
-    genres: row.genres.split(",").map((genre) => genre.trim()),
+    genres: row.genres
+      .split(",")
+      .map((genre) => genre.trim())
+      .filter(Boolean),
     posterUrl: row.poster_url,
     backdropUrl: row.backdrop_url,
     featured: row.featured === 1,
     trendingRank: row.trending_rank,
+    sourceKey: row.source_key ?? undefined,
+    sourceCount: row.source_count ?? undefined,
+    doubanId: row.douban_id ?? undefined,
+  }
+}
+
+export function movieResourceFromRow(row: MovieResourceRow): MovieResource {
+  let playLines: MovieResource["playLines"] = []
+
+  try {
+    const parsed = JSON.parse(row.play_lines) as MovieResource["playLines"]
+    if (Array.isArray(parsed)) {
+      playLines = parsed.filter(
+        (line) =>
+          typeof line?.name === "string" && typeof line?.url === "string"
+      )
+    }
+  } catch {
+    playLines = []
+  }
+
+  return {
+    sourceKey: row.source_key,
+    sourceName: row.source_name,
+    sourceId: row.source_id,
+    sourceType: row.source_type,
+    sourceArea: row.source_area,
+    sourceLanguage: row.source_language,
+    statusNote: row.status_note,
+    sourceUpdatedAt: row.source_updated_at,
+    posterUrl: row.poster_url,
+    detailUrl: row.detail_url,
+    playLines,
   }
 }
 
