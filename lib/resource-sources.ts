@@ -609,7 +609,7 @@ async function fetchUuzyItems(
         cached.title === item.title &&
         cached.status_note === item.note &&
         cached.source_updated_at === item.sourceUpdatedAt &&
-        cached.play_lines !== "[]"
+        (cached.play_lines !== "[]" || item.note === "Trailer")
       ) {
         let playLines: ResourceItem["playLines"] = []
         try {
@@ -621,7 +621,7 @@ async function fetchUuzyItems(
           playLines = []
         }
 
-        if (playLines.length > 0) {
+        if (playLines.length > 0 || item.note === "Trailer") {
           return {
             ...item,
             title: cached.title || item.title,
