@@ -15,6 +15,16 @@ const SOURCE_KEYS_BY_CRON: Record<string, SourceKey[]> = {
   [UUZY_CRON]: ["uuzy"],
 }
 
+let d1WriteLimitDate: string | null = null
+
+function utcDateNow() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function isD1DailyWriteLimitError(error: unknown) {
+  return String(error).includes("free tier daily row write limit")
+}
+
 const worker = {
   fetch(
     request: Request,
@@ -36,6 +46,9 @@ const worker = {
       })
       return
     }
+
+    const utcDate = utcDateNow()
+    if (d1WriteLimitDate === utcDate) return
 
     try {
       const results = await runScheduledSync(environment, sourceKeys)
@@ -65,6 +78,17 @@ const worker = {
         console.log("resource sync cron completed", logPayload)
       }
     } catch (error) {
+      if (isD1DailyWriteLimitError(error)) {
+        d1WriteLimitDate = utcDate
+        console.error("resource sync paused until the next UTC day", {
+          cron: controller.cron,
+          scheduledTime: new Date(controller.scheduledTime).toISOString(),
+          durationMs: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return
+      }
+
       console.error("resource sync cron failed", {
         cron: controller.cron,
         scheduledTime: new Date(controller.scheduledTime).toISOString(),
