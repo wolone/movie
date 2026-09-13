@@ -60,6 +60,8 @@ type SourceResponse = {
   limit: number
   total: number
   mapped: number
+  playable: number
+  withoutPlay: number
   items: ResourceItem[]
 }
 
@@ -456,7 +458,7 @@ export function ResourceManager() {
       <div className="mt-6 flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
         <span>
           {data
-            ? `共 ${data.total} 条资源 · 已映射 ${data.mapped} 条`
+            ? `共 ${data.total} 条资源 · 可播放 ${data.playable} 条 · 暂无播放地址 ${data.withoutPlay} 条 · 已映射 ${data.mapped} 条`
             : "正在读取资源"}
           {activeQuery ? ` · 搜索「${activeQuery}」` : ""}
         </span>

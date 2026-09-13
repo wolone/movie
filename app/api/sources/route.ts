@@ -35,14 +35,21 @@ async function getSourceItems(
   const [count, rows] = await Promise.all([
     env.DB.prepare(
       `SELECT COUNT(*) AS total,
-              SUM(CASE WHEN douban_id IS NOT NULL THEN 1 ELSE 0 END) AS mapped
+              SUM(CASE WHEN douban_id IS NOT NULL THEN 1 ELSE 0 END) AS mapped,
+              SUM(CASE WHEN json_array_length(play_lines) > 0 THEN 1 ELSE 0 END) AS playable,
+              SUM(CASE WHEN json_array_length(play_lines) = 0 THEN 1 ELSE 0 END) AS without_play
          FROM movie_sources
         WHERE source_key = ?
           AND (title LIKE ? OR source_id LIKE ?)
           ${mappingClause}`
     )
       .bind(sourceKey, search, search)
-      .first<{ total: number; mapped: number | null }>(),
+      .first<{
+        total: number
+        mapped: number | null
+        playable: number | null
+        without_play: number | null
+      }>(),
     env.DB.prepare(
       `SELECT source_key, source_name, source_id, title, source_type,
           source_area, source_language, status_note, source_updated_at,
@@ -67,6 +74,8 @@ async function getSourceItems(
     limit,
     total: count?.total ?? 0,
     mapped: count?.mapped ?? 0,
+    playable: count?.playable ?? 0,
+    withoutPlay: count?.without_play ?? 0,
     items: rows.results.map((row) => ({
       ...movieResourceFromRow(row),
       title: row.title,
