@@ -2,7 +2,7 @@ import Link from "next/link"
 
 import { ResourceManager } from "@/components/resource-manager"
 
-export default function ManagePage() {
+export default function AdminPage() {
   return (
     <main className="min-h-svh bg-background text-foreground">
       <header className="border-b border-border/60 bg-background/80 backdrop-blur-xl">

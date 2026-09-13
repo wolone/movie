@@ -204,7 +204,7 @@ export function MovieHome() {
             </Link>
             <Link
               className="transition-colors hover:text-foreground"
-              href="/manage"
+              href="/admin"
             >
               资源映射
             </Link>
