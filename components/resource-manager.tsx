@@ -57,6 +57,7 @@ type SourceResponse = {
   page: number
   limit: number
   total: number
+  mapped: number
   items: ResourceItem[]
 }
 
@@ -416,7 +417,9 @@ export function ResourceManager() {
 
       <div className="mt-6 flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
         <span>
-          {data ? `共 ${data.total} 条资源` : "正在读取资源"}
+          {data
+            ? `共 ${data.total} 条资源 · 已映射 ${data.mapped} 条`
+            : "正在读取资源"}
           {activeQuery ? ` · 搜索「${activeQuery}」` : ""}
         </span>
         <div className="flex flex-wrap gap-2">

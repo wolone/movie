@@ -25,13 +25,14 @@ async function getSourceItems(
   const search = `%${query}%`
   const [count, rows] = await Promise.all([
     env.DB.prepare(
-      `SELECT COUNT(*) AS total
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN douban_id IS NOT NULL THEN 1 ELSE 0 END) AS mapped
          FROM movie_sources
         WHERE source_key = ?
           AND (title LIKE ? OR source_id LIKE ?)`
     )
       .bind(sourceKey, search, search)
-      .first<{ total: number }>(),
+      .first<{ total: number; mapped: number | null }>(),
     env.DB.prepare(
       `SELECT source_key, source_name, source_id, title, source_type,
           source_area, source_language, status_note, source_updated_at,
@@ -54,6 +55,7 @@ async function getSourceItems(
     page,
     limit,
     total: count?.total ?? 0,
+    mapped: count?.mapped ?? 0,
     items: rows.results.map((row) => ({
       ...movieResourceFromRow(row),
       title: row.title,
