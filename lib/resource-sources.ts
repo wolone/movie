@@ -882,7 +882,7 @@ const SOURCE_BATCH_PAGES: Record<SourceKey, number> = {
 const SOURCE_SCHEDULE_INTERVAL_MINUTES: Record<SourceKey, number> = {
   xigua: 15,
   wsyzy: 5,
-  uuzy: 5,
+  uuzy: 1,
 }
 
 async function syncSourcePage(

@@ -5,7 +5,7 @@ import { runScheduledSync, type SourceKey } from "../lib/resource-sources"
 
 const XIGUA_CRON = "*/15 * * * *"
 const WSYZY_CRON = "*/5 * * * *"
-const UUZY_CRON = "2-59/5 * * * *"
+const UUZY_CRON = "* * * * *"
 
 const SOURCE_KEYS_BY_CRON: Record<string, SourceKey[]> = {
   [XIGUA_CRON]: ["xigua"],
