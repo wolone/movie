@@ -409,6 +409,9 @@ export function ResourceManager() {
                   已处理 {item.itemsSyncedTotal} 条 · 第 {item.lastPage || 0} 页
                   {item.pageCount ? ` / ${item.pageCount}` : ""}
                 </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  最近成功：{formatDate(item.lastSuccessAt ?? item.lastRunAt)}
+                </p>
                 {item.status === "running" && (
                   <p className="mt-1 text-xs text-muted-foreground">
                     下一页：{item.nextPage}
