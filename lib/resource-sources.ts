@@ -27,6 +27,7 @@ type SourceConfig = {
   siteBase: string
   format: "json" | "xml" | "html"
   supportsPagination: boolean
+  pageSize?: number
   preferredFlag: string
 }
 
@@ -67,6 +68,7 @@ export const SOURCE_CONFIGS: Record<SourceKey, SourceConfig> = {
     siteBase: "https://xgzy.tv",
     format: "xml",
     supportsPagination: true,
+    pageSize: 50,
     preferredFlag: "xiguam3u8",
   },
   wsyzy: {
@@ -355,6 +357,12 @@ function buildListUrl(config: SourceConfig, page: number) {
   if (config.supportsPagination) {
     url.searchParams.set(config.format === "html" ? "page" : "pg", String(page))
   }
+  if (config.pageSize) {
+    url.searchParams.set(
+      config.format === "xml" ? "pagesize" : "limit",
+      String(config.pageSize)
+    )
+  }
   return url
 }
 
@@ -362,6 +370,7 @@ function buildDetailUrl(config: SourceConfig, ids: string[]) {
   const url = new URL(config.detailEndpoint)
   url.searchParams.set("ac", "detail")
   url.searchParams.set("ids", ids.join(","))
+  if (config.pageSize) url.searchParams.set("pagesize", String(config.pageSize))
   return url
 }
 
