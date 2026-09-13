@@ -799,6 +799,14 @@ async function syncSourcePage(
   try {
     const sourcePage = await fetchSourceItems(config, page, environment)
     const items = uniqueItems(sourcePage.items)
+    const isExpectedEnd =
+      sourcePage.pageCount > 0 && sourcePage.page >= sourcePage.pageCount
+
+    if (items.length === 0 && !isExpectedEnd) {
+      throw new Error(
+        `${config.name} 第 ${page} 页返回空数据，暂不推进同步游标`
+      )
+    }
 
     if (sourceKey === "uuzy") {
       for (const item of items) {
@@ -1234,9 +1242,7 @@ export async function processFullSyncBatch(
           totalItems = pageResult.totalItems || totalItems
           itemsSyncedTotal += pageResult.itemsSynced
 
-          const reachedEnd =
-            pageResult.itemsSynced === 0 ||
-            Boolean(pageCount && nextPage >= pageCount)
+          const reachedEnd = Boolean(pageCount && nextPage >= pageCount)
 
           if (reachedEnd) {
             status = "completed"
