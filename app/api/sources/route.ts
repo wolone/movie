@@ -15,21 +15,31 @@ type SourceItemRow = MovieResourceRow & {
   douban_id: string | null
 }
 
+type MappingFilter = "all" | "mapped" | "unmapped"
+
 async function getSourceItems(
   sourceKey: SourceKey,
   query: string,
   page: number,
-  limit: number
+  limit: number,
+  mappingFilter: MappingFilter
 ) {
   const offset = (page - 1) * limit
   const search = `%${query}%`
+  const mappingClause =
+    mappingFilter === "mapped"
+      ? "AND douban_id IS NOT NULL"
+      : mappingFilter === "unmapped"
+        ? "AND douban_id IS NULL"
+        : ""
   const [count, rows] = await Promise.all([
     env.DB.prepare(
       `SELECT COUNT(*) AS total,
               SUM(CASE WHEN douban_id IS NOT NULL THEN 1 ELSE 0 END) AS mapped
          FROM movie_sources
         WHERE source_key = ?
-          AND (title LIKE ? OR source_id LIKE ?)`
+          AND (title LIKE ? OR source_id LIKE ?)
+          ${mappingClause}`
     )
       .bind(sourceKey, search, search)
       .first<{ total: number; mapped: number | null }>(),
@@ -40,6 +50,7 @@ async function getSourceItems(
          FROM movie_sources
         WHERE source_key = ?
           AND (title LIKE ? OR source_id LIKE ?)
+          ${mappingClause}
         ORDER BY source_updated_at DESC, source_id DESC
         LIMIT ? OFFSET ?`
     )
@@ -88,11 +99,17 @@ export async function GET(request: Request) {
       const limit = Number.isFinite(requestedLimit)
         ? Math.min(100, Math.max(1, requestedLimit))
         : 30
+      const mappingParam = searchParams.get("mapped")
+      const mappingFilter: MappingFilter =
+        mappingParam === "mapped" || mappingParam === "unmapped"
+          ? mappingParam
+          : "all"
       const result = await getSourceItems(
         sourceParam,
         searchParams.get("q")?.trim() ?? "",
         page,
-        limit
+        limit,
+        mappingFilter
       )
 
       return Response.json(result)

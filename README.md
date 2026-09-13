@@ -90,6 +90,7 @@ GET /api/movies?q=dune&category=科幻
 GET /api/movies/:slug
 GET /api/sources
 GET /api/sources?source=wsyzy&q=丰臣
+GET /api/sources?source=wsyzy&mapped=unmapped
 GET /api/sync
 POST /api/sync?source=xigua&page=1
 POST /api/sync?mode=full&source=xigua

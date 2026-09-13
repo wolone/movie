@@ -36,6 +36,7 @@ const sources = [
 ] as const
 
 type SourceKey = (typeof sources)[number]["key"]
+type MappingFilter = "all" | "mapped" | "unmapped"
 
 type ResourceItem = {
   sourceKey: string
@@ -130,6 +131,7 @@ export function ResourceManager() {
   const [sourceKey, setSourceKey] = useState<SourceKey>("wsyzy")
   const [query, setQuery] = useState("")
   const [activeQuery, setActiveQuery] = useState("")
+  const [mappingFilter, setMappingFilter] = useState<MappingFilter>("all")
   const [page, setPage] = useState(1)
   const [data, setData] = useState<SourceResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -151,6 +153,7 @@ export function ResourceManager() {
       source: sourceKey,
       limit: "12",
       page: String(page),
+      mapped: mappingFilter,
     })
     if (activeQuery) params.set("q", activeQuery)
 
@@ -171,7 +174,7 @@ export function ResourceManager() {
     } finally {
       setIsLoading(false)
     }
-  }, [activeQuery, page, sourceKey])
+  }, [activeQuery, mappingFilter, page, sourceKey])
 
   const loadSyncProgress = useCallback(async () => {
     try {
@@ -215,6 +218,14 @@ export function ResourceManager() {
     event.preventDefault()
     setPage(1)
     setActiveQuery(query.trim())
+  }
+
+  function selectMappingFilter(value: string[]) {
+    const nextFilter = value[0] as MappingFilter | undefined
+    if (!nextFilter) return
+
+    setMappingFilter(nextFilter)
+    setPage(1)
   }
 
   function selectSource(value: string[]) {
@@ -401,6 +412,21 @@ export function ResourceManager() {
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">映射状态</span>
+            <ToggleGroup
+              aria-label="筛选豆瓣映射状态"
+              multiple={false}
+              onValueChange={selectMappingFilter}
+              size="sm"
+              value={[mappingFilter]}
+              variant="outline"
+            >
+              <ToggleGroupItem value="all">全部</ToggleGroupItem>
+              <ToggleGroupItem value="unmapped">待映射</ToggleGroupItem>
+              <ToggleGroupItem value="mapped">已映射</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
           <form className="flex gap-2" onSubmit={submitSearch}>
             <Input
               aria-label="搜索资源站影片"
