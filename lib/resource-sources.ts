@@ -774,7 +774,7 @@ type SyncRunRow = {
   lock_until: string | null
 }
 
-const FULL_SYNC_PAGES_PER_BATCH = 5
+const FULL_SYNC_PAGES_PER_BATCH = 10
 const WSYZY_FULL_SYNC_PAGES_PER_BATCH = 10
 const SYNC_LEASE_MS = 2 * 60 * 1000
 const SOURCE_BATCH_PAGES: Record<SourceKey, number> = {
@@ -1185,7 +1185,10 @@ export async function processFullSyncBatch(
   const keys = options.sourceKeys ?? SOURCE_KEYS
   const pagesPerSource = Math.max(
     1,
-    Math.min(5, Math.floor(options.pagesPerSource ?? FULL_SYNC_PAGES_PER_BATCH))
+    Math.min(
+      10,
+      Math.floor(options.pagesPerSource ?? FULL_SYNC_PAGES_PER_BATCH)
+    )
   )
   const results: Array<SyncProgress & { ok: boolean; pagesProcessed: number }> =
     []
