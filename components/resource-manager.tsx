@@ -375,6 +375,8 @@ export function ResourceManager() {
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.limit)) : 1
   const hasRunningSync = syncProgress.some((item) => item.status === "running")
+  const selectedSync = syncProgress.find((item) => item.sourceKey === sourceKey)
+  const isSelectedSourceRunning = selectedSync?.status === "running"
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
@@ -460,7 +462,7 @@ export function ResourceManager() {
         </span>
         <div className="flex flex-wrap gap-2">
           <Button
-            disabled={isLoading || isSyncing || hasRunningSync}
+            disabled={isLoading || isSyncing || isSelectedSourceRunning}
             onClick={() => void syncResources(sourceKey)}
             size="sm"
             variant="outline"
@@ -563,6 +565,25 @@ export function ResourceManager() {
                       <Pause data-icon="inline-start" />
                     )}
                     {item.status === "paused" ? "继续同步" : "暂停同步"}
+                  </Button>
+                )}
+                {item.status === "error" && (
+                  <Button
+                    className="mt-3"
+                    disabled={isSyncing}
+                    onClick={() => void syncResources(item.sourceKey)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {isSyncing ? (
+                      <LoaderCircle
+                        className="animate-spin"
+                        data-icon="inline-start"
+                      />
+                    ) : (
+                      <RefreshCw data-icon="inline-start" />
+                    )}
+                    重试当前资源站
                   </Button>
                 )}
               </div>
