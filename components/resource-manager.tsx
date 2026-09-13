@@ -126,6 +126,12 @@ function formatDate(value: string | null) {
       }).format(date)
 }
 
+function resourceMappingKey(
+  item: Pick<ResourceItem, "sourceKey" | "sourceId">
+) {
+  return `${item.sourceKey}:${item.sourceId}`
+}
+
 export function ResourceManager() {
   const router = useRouter()
   const [sourceKey, setSourceKey] = useState<SourceKey>("wsyzy")
@@ -329,13 +335,14 @@ export function ResourceManager() {
   }
 
   async function mapResource(item: ResourceItem) {
-    const doubanId = doubanIds[item.sourceId]?.trim() || item.doubanId?.trim()
+    const mappingKey = resourceMappingKey(item)
+    const doubanId = doubanIds[mappingKey]?.trim() || item.doubanId?.trim()
     if (!doubanId) {
       setNotice(`请先填写「${item.title}」的豆瓣 ID 或豆瓣 URL。`)
       return
     }
 
-    setSubmittingId(item.sourceId)
+    setSubmittingId(mappingKey)
     setNotice("")
 
     try {
@@ -650,18 +657,20 @@ export function ResourceManager() {
                     onChange={(event) =>
                       setDoubanIds((current) => ({
                         ...current,
-                        [item.sourceId]: event.target.value,
+                        [resourceMappingKey(item)]: event.target.value,
                       }))
                     }
                     placeholder="豆瓣 ID 或 URL"
-                    value={doubanIds[item.sourceId] ?? item.doubanId ?? ""}
+                    value={
+                      doubanIds[resourceMappingKey(item)] ?? item.doubanId ?? ""
+                    }
                   />
                   <Button
                     className="shrink-0"
-                    disabled={submittingId === item.sourceId}
+                    disabled={submittingId === resourceMappingKey(item)}
                     type="submit"
                   >
-                    {submittingId === item.sourceId ? (
+                    {submittingId === resourceMappingKey(item) ? (
                       <LoaderCircle
                         className="animate-spin"
                         data-icon="inline-start"
