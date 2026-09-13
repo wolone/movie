@@ -400,31 +400,49 @@ function parseJsonPageMeta(
   }
 }
 
+const FETCH_RETRY_DELAYS_MS = [300, 1_000]
+
+function isRetryableStatus(status: number) {
+  return status === 408 || status === 425 || status === 429 || status >= 500
+}
+
 async function fetchBody(url: URL, timeoutMs = 20_000) {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  for (let attempt = 0; attempt <= FETCH_RETRY_DELAYS_MS.length; attempt += 1) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+    let retryable = true
 
-  try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json, application/xml, text/xml;q=0.9, */*;q=0.8",
-        "User-Agent": "movie-worker-resource-sync/1.0",
-      },
-      signal: controller.signal,
-    })
-    const body = await response.text()
-    const trimmed = body.trim()
-    const validBody = trimmed.startsWith("<") || trimmed.startsWith("{")
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept:
+            "application/json, application/xml, text/xml;q=0.9, */*;q=0.8",
+          "User-Agent": "movie-worker-resource-sync/1.0",
+        },
+        signal: controller.signal,
+      })
+      const body = await response.text()
+      const trimmed = body.trim()
+      const validBody = trimmed.startsWith("<") || trimmed.startsWith("{")
 
-    if (!response.ok && !validBody) {
-      throw new Error(`Resource request failed: ${response.status} ${url}`)
+      if (!response.ok) {
+        retryable = isRetryableStatus(response.status)
+        throw new Error(`Resource request failed: ${response.status} ${url}`)
+      }
+
+      if (!validBody) throw new Error(`Resource response was empty: ${url}`)
+      return body
+    } catch (error) {
+      if (!retryable || attempt === FETCH_RETRY_DELAYS_MS.length) throw error
+      await new Promise((resolve) =>
+        setTimeout(resolve, FETCH_RETRY_DELAYS_MS[attempt])
+      )
+    } finally {
+      clearTimeout(timeoutId)
     }
-
-    if (!validBody) throw new Error(`Resource response was empty: ${url}`)
-    return body
-  } finally {
-    clearTimeout(timeoutId)
   }
+
+  throw new Error(`Resource request failed: ${url}`)
 }
 
 function htmlTagAttribute(block: string, tag: string, attribute: string) {
