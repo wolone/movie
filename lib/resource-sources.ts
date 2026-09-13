@@ -49,6 +49,8 @@ export type SyncProgress = {
   nextPage: number
   lastPage: number
   pageCount: number | null
+  progressPercent: number
+  estimatedMinutesRemaining: number | null
   totalItems: number | null
   itemsSyncedTotal: number
   lastRunAt: string | null
@@ -870,6 +872,8 @@ function emptySyncProgress(sourceKey: SourceKey): SyncProgress {
     nextPage: 1,
     lastPage: 0,
     pageCount: null,
+    progressPercent: 0,
+    estimatedMinutesRemaining: null,
     totalItems: null,
     itemsSyncedTotal: 0,
     lastRunAt: null,
@@ -884,6 +888,21 @@ function toSyncProgress(
 ): SyncProgress {
   if (!run) return emptySyncProgress(sourceKey)
 
+  const currentPage =
+    run.sync_status === "completed"
+      ? (run.page_count ?? run.last_page)
+      : Math.max(run.last_page, run.next_page - 1)
+  const progressPercent = run.page_count
+    ? Math.min(
+        100,
+        Math.max(1, Math.round((currentPage / run.page_count) * 100))
+      )
+    : 0
+  const pagesRemaining = run.page_count
+    ? Math.max(0, run.page_count - currentPage)
+    : null
+  const pagesPerBatch = sourceKey === "uuzy" ? 1 : 5
+
   return {
     sourceKey,
     sourceName: SOURCE_CONFIGS[sourceKey].name,
@@ -891,6 +910,11 @@ function toSyncProgress(
     nextPage: run.next_page,
     lastPage: run.last_page,
     pageCount: run.page_count,
+    progressPercent,
+    estimatedMinutesRemaining:
+      pagesRemaining === null
+        ? null
+        : Math.ceil((pagesRemaining / pagesPerBatch) * 15),
     totalItems: run.total_items,
     itemsSyncedTotal: run.items_synced_total,
     lastRunAt: run.last_run_at,

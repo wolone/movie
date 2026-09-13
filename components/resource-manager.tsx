@@ -83,6 +83,8 @@ type SyncProgress = {
   nextPage: number
   lastPage: number
   pageCount: number | null
+  progressPercent: number
+  estimatedMinutesRemaining: number | null
   totalItems: number | null
   itemsSyncedTotal: number
   lastRunAt: string | null
@@ -98,6 +100,13 @@ function syncStatusLabel(status: SyncProgress["status"]) {
     completed: "本轮完成",
     error: "需要重试",
   }[status]
+}
+
+function formatEta(minutes: number | null) {
+  if (minutes === null) return "等待接口返回页数"
+  if (minutes >= 24 * 60) return `约 ${Math.ceil(minutes / (24 * 60))} 天`
+  if (minutes < 60) return `约 ${minutes} 分钟`
+  return `约 ${Math.ceil(minutes / 60)} 小时`
 }
 
 function formatDate(value: string | null) {
@@ -462,6 +471,12 @@ export function ResourceManager() {
                 <p className="mt-3 text-sm text-muted-foreground">
                   已处理 {item.itemsSyncedTotal} 条 · 第 {item.lastPage || 0} 页
                   {item.pageCount ? ` / ${item.pageCount}` : ""}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  进度 {item.progressPercent}% · 预计剩余
+                  {item.status === "completed"
+                    ? "已完成"
+                    : ` ${formatEta(item.estimatedMinutesRemaining)}`}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   最近成功：{formatDate(item.lastSuccessAt ?? item.lastRunAt)}
