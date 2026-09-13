@@ -880,7 +880,7 @@ const SOURCE_BATCH_PAGES: Record<SourceKey, number> = {
   uuzy: 1,
 }
 const SOURCE_SCHEDULE_INTERVAL_MINUTES: Record<SourceKey, number> = {
-  xigua: 15,
+  xigua: 5,
   wsyzy: 5,
   uuzy: 1,
 }
