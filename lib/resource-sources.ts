@@ -954,7 +954,26 @@ async function syncSourcePage(
            END,
            detail_url = excluded.detail_url,
            synced_at = excluded.synced_at,
-           douban_id = COALESCE(movie_sources.douban_id, excluded.douban_id)`
+           douban_id = COALESCE(movie_sources.douban_id, excluded.douban_id)
+         WHERE movie_sources.source_name IS NOT excluded.source_name
+            OR movie_sources.title IS NOT excluded.title
+            OR movie_sources.source_type IS NOT excluded.source_type
+            OR movie_sources.source_area IS NOT excluded.source_area
+            OR movie_sources.source_language IS NOT excluded.source_language
+            OR movie_sources.status_note IS NOT excluded.status_note
+            OR movie_sources.source_updated_at IS NOT excluded.source_updated_at
+            OR (CASE
+                 WHEN excluded.poster_url != '' THEN excluded.poster_url
+                 ELSE movie_sources.poster_url
+               END) IS NOT movie_sources.poster_url
+            OR (CASE
+                 WHEN excluded.source_key = 'uuzy'
+                  AND json_array_length(excluded.play_lines) = 0
+                  AND json_array_length(movie_sources.play_lines) > 0
+                   THEN movie_sources.play_lines
+                 ELSE excluded.play_lines
+               END) IS NOT movie_sources.play_lines
+            OR movie_sources.detail_url IS NOT excluded.detail_url`
       ).bind(
         item.sourceKey,
         item.sourceName,
