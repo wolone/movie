@@ -517,6 +517,89 @@ function extractUuzyPlayLines(html: string) {
   return lines
 }
 
+type UuzyRepairRow = {
+  source_id: string
+  title: string
+  source_type: string
+  source_area: string
+  source_language: string
+  status_note: string
+  source_updated_at: string | null
+  poster_url: string
+  detail_url: string
+}
+
+const UUZY_EMPTY_PLAY_REPAIR_LIMIT = 3
+
+async function repairUuzyEmptyPlayLines(environment: { DB: D1Database }) {
+  const rows = await environment.DB.prepare(
+    `SELECT source_id, title, source_type, source_area, source_language,
+            status_note, source_updated_at, poster_url, detail_url
+       FROM movie_sources
+      WHERE source_key = 'uuzy'
+        AND status_note != 'Trailer'
+        AND json_array_length(play_lines) = 0
+        AND detail_url != ''
+      ORDER BY source_updated_at DESC
+      LIMIT ?`
+  )
+    .bind(UUZY_EMPTY_PLAY_REPAIR_LIMIT)
+    .all<UuzyRepairRow>()
+
+  const repaired = await Promise.all(
+    rows.results.map(async (row) => {
+      try {
+        const detailBody = await fetchBody(new URL(row.detail_url), 8_000)
+        const playLines = extractUuzyPlayLines(detailBody)
+        if (playLines.length === 0) return null
+
+        return {
+          ...row,
+          title:
+            htmlMetaValue(detailBody, ["og:title"])
+              .replace(/^(电影|电视剧)\s*/u, "")
+              .trim() || row.title,
+          sourceType:
+            htmlMetaValue(detailBody, ["article:section"]) || row.source_type,
+          posterUrl:
+            resolveUrl(
+              htmlMetaValue(detailBody, ["og:image"]),
+              "https://uuzy.me"
+            ) || row.poster_url,
+          playLines,
+        }
+      } catch {
+        return null
+      }
+    })
+  )
+
+  const statements = repaired
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+    .map((item) =>
+      environment.DB.prepare(
+        `UPDATE movie_sources
+            SET title = ?, source_type = ?, source_area = ?, source_language = ?,
+                status_note = ?, source_updated_at = ?, poster_url = ?,
+                play_lines = ?, synced_at = ?
+          WHERE source_key = 'uuzy' AND source_id = ?`
+      ).bind(
+        item.title,
+        item.sourceType,
+        item.source_area,
+        item.source_language,
+        item.status_note,
+        item.source_updated_at,
+        item.posterUrl,
+        JSON.stringify(item.playLines),
+        new Date().toISOString(),
+        item.source_id
+      )
+    )
+
+  if (statements.length > 0) await environment.DB.batch(statements)
+}
+
 type CachedUuzyResource = {
   source_id: string
   title: string
@@ -858,8 +941,17 @@ async function syncSourcePage(
            source_language = excluded.source_language,
            status_note = excluded.status_note,
            source_updated_at = excluded.source_updated_at,
-           poster_url = excluded.poster_url,
-           play_lines = excluded.play_lines,
+           poster_url = CASE
+             WHEN excluded.poster_url != '' THEN excluded.poster_url
+             ELSE movie_sources.poster_url
+           END,
+           play_lines = CASE
+             WHEN excluded.source_key = 'uuzy'
+              AND json_array_length(excluded.play_lines) = 0
+              AND json_array_length(movie_sources.play_lines) > 0
+               THEN movie_sources.play_lines
+             ELSE excluded.play_lines
+           END,
            detail_url = excluded.detail_url,
            synced_at = excluded.synced_at,
            douban_id = COALESCE(movie_sources.douban_id, excluded.douban_id)`
@@ -1256,6 +1348,14 @@ export async function processFullSyncBatch(
       let status: SyncProgressStatus = "running"
       let error: string | null = null
       let pagesProcessed = 0
+
+      if (key === "uuzy") {
+        try {
+          await repairUuzyEmptyPlayLines(environment)
+        } catch (repairError) {
+          console.error("Unable to repair UUZY empty play lines", repairError)
+        }
+      }
 
       const sourcePagesPerBatch =
         key === "wsyzy"
