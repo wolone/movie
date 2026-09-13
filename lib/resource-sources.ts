@@ -1165,11 +1165,25 @@ function toSyncProgress(
     : null
   const pagesPerBatch = SOURCE_BATCH_PAGES[sourceKey]
   const scheduleIntervalMinutes = SOURCE_SCHEDULE_INTERVAL_MINUTES[sourceKey]
+  const staleAfterMinutes = Math.max(10, scheduleIntervalMinutes * 3)
+  const lastSuccessTime = run.last_success_at
+    ? Date.parse(run.last_success_at)
+    : Number.NaN
+  const isStale =
+    run.sync_status === "running" &&
+    Number.isFinite(lastSuccessTime) &&
+    Date.now() - lastSuccessTime > staleAfterMinutes * 60_000
+  const status: SyncProgressStatus = isStale ? "error" : run.sync_status
+  const lastError =
+    run.last_error ??
+    (isStale
+      ? `已超过 ${staleAfterMinutes} 分钟未成功，可能是 D1 写入额度或上游接口异常`
+      : null)
 
   return {
     sourceKey,
     sourceName: SOURCE_CONFIGS[sourceKey].name,
-    status: run.sync_status,
+    status,
     nextPage: run.next_page,
     lastPage: run.last_page,
     pageCount: run.page_count,
@@ -1182,7 +1196,7 @@ function toSyncProgress(
     itemsSyncedTotal: run.items_synced_total,
     lastRunAt: run.last_run_at,
     lastSuccessAt: run.last_success_at,
-    lastError: run.last_error,
+    lastError,
   }
 }
 
