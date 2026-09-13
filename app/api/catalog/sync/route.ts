@@ -1,11 +1,14 @@
 import { env } from "cloudflare:workers"
 
+import { adminAuthResponse, isAdminRequest } from "@/lib/admin-auth"
 import { syncDoubanCatalogMovie } from "@/lib/catalog-sync"
 import { isSourceKey } from "@/lib/resource-sources"
 
 export const dynamic = "force-dynamic"
 
 export async function POST(request: Request) {
+  if (!(await isAdminRequest(request, env))) return adminAuthResponse(env)
+
   let body: unknown
   try {
     body = await request.json()

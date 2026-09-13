@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers"
 
+import { adminAuthResponse, isAdminRequest } from "@/lib/admin-auth"
 import {
   getSyncProgress,
   isSourceKey,
@@ -13,6 +14,8 @@ import {
 export const dynamic = "force-dynamic"
 
 export async function GET(request: Request) {
+  if (!(await isAdminRequest(request, env))) return adminAuthResponse(env)
+
   const { searchParams } = new URL(request.url)
   const sourceParam = searchParams.get("source")
 
@@ -30,6 +33,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  if (!(await isAdminRequest(request, env))) return adminAuthResponse(env)
+
   const { searchParams } = new URL(request.url)
   const sourceParam = searchParams.get("source")
   const mode = searchParams.get("mode") ?? "page"

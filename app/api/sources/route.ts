@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers"
 
+import { adminAuthResponse, isAdminRequest } from "@/lib/admin-auth"
 import {
   isSourceKey,
   SOURCE_CONFIGS,
@@ -85,6 +86,8 @@ async function getSourceItems(
 }
 
 export async function GET(request: Request) {
+  if (!(await isAdminRequest(request, env))) return adminAuthResponse(env)
+
   try {
     const { searchParams } = new URL(request.url)
     const sourceParam = searchParams.get("source")

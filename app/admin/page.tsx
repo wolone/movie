@@ -1,6 +1,6 @@
 import Link from "next/link"
 
-import { ResourceManager } from "@/components/resource-manager"
+import { AdminGate } from "@/components/admin-gate"
 
 export default function AdminPage() {
   return (
@@ -16,7 +16,7 @@ export default function AdminPage() {
           <span className="text-sm text-muted-foreground">资源映射</span>
         </div>
       </header>
-      <ResourceManager />
+      <AdminGate />
     </main>
   )
 }

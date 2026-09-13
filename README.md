@@ -74,6 +74,14 @@ pnpm run deploy:vinext
 pnpm wrangler d1 migrations apply movie --remote
 ```
 
+后台和手动同步接口需要配置 Cloudflare Secret：
+
+```bash
+pnpm wrangler secret put ADMIN_TOKEN
+```
+
+Secret 配置后再执行 `pnpm run deploy:vinext`。管理员访问 `/admin` 后输入同一个令牌；会话使用 HttpOnly Cookie 保存。未配置 Secret 时，后台和同步写入接口会返回 503，避免生产环境意外暴露同步能力。
+
 ApiZero 资料接口按当前生产配置直接使用公开接口，不需要额外 API Key。
 
 当前 Cloudflare 资源：
@@ -89,16 +97,17 @@ ApiZero 资料接口按当前生产配置直接使用公开接口，不需要额
 GET /api/health
 GET /api/movies?q=dune&category=科幻
 GET /api/movies/:slug
-GET /api/sources
-GET /api/sources?source=wsyzy&q=丰臣
-GET /api/sources?source=wsyzy&mapped=unmapped
-GET /api/sync
-POST /api/sync?source=xigua&page=1
-POST /api/sync?mode=full&source=xigua
-POST /api/sync?mode=full
-POST /api/sync?mode=pause&source=xigua
-POST /api/sync?mode=resume&source=xigua
-POST /api/catalog/sync
+GET /api/admin/session
+GET /api/sources                        # 需要管理员会话
+GET /api/sources?source=wsyzy&q=丰臣     # 需要管理员会话
+GET /api/sources?source=wsyzy&mapped=unmapped # 需要管理员会话
+GET /api/sync                            # 需要管理员会话
+POST /api/sync?source=xigua&page=1       # 需要管理员会话
+POST /api/sync?mode=full&source=xigua    # 需要管理员会话
+POST /api/sync?mode=full                 # 需要管理员会话
+POST /api/sync?mode=pause&source=xigua   # 需要管理员会话
+POST /api/sync?mode=resume&source=xigua  # 需要管理员会话
+POST /api/catalog/sync                   # 需要管理员会话
 ```
 
 资源管理页面：<https://movie.71954466.workers.dev/admin>。页面提供“全量同步当前”和“全量同步全部”按钮，任务会分批执行并显示进度，也可以对单个资源站暂停和继续。
@@ -111,7 +120,7 @@ Cron 和后台手动同步可以同时触发，但同一资源站同一时间只
 
 手动分页同步也共享同一租约；如果该资源站正由全量批次处理，接口返回 HTTP 409，等待当前批次完成后再重试。
 
-`/api/sync` 为公开的手动同步入口。`/api/catalog/sync` 接收以下 JSON：
+`/api/sync`、`/api/sources` 和 `/api/catalog/sync` 只接受管理员会话。`/api/catalog/sync` 接收以下 JSON：
 
 ```json
 {
