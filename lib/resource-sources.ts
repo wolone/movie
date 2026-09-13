@@ -775,7 +775,7 @@ type SyncRunRow = {
 const FULL_SYNC_PAGES_PER_BATCH = 5
 const SOURCE_SCHEDULE_INTERVAL_MINUTES: Record<SourceKey, number> = {
   xigua: 15,
-  wsyzy: 15,
+  wsyzy: 5,
   uuzy: 5,
 }
 

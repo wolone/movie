@@ -7,8 +7,8 @@ import {
   type SourceKey,
 } from "../lib/resource-sources"
 
-const ALL_SOURCES_CRON = "*/15 * * * *"
-const UUZY_CRON = "*/5 * * * *"
+const XIGUA_CRON = "*/15 * * * *"
+const FREQUENT_SOURCES_CRON = "*/5 * * * *"
 
 const worker = {
   fetch(
@@ -24,10 +24,10 @@ const worker = {
   async scheduled(controller: ScheduledController, environment: CloudflareEnv) {
     const startedAt = Date.now()
     const sourceKeys: SourceKey[] =
-      controller.cron === UUZY_CRON
-        ? ["uuzy"]
-        : controller.cron === ALL_SOURCES_CRON
-          ? ["xigua", "wsyzy"]
+      controller.cron === FREQUENT_SOURCES_CRON
+        ? ["wsyzy", "uuzy"]
+        : controller.cron === XIGUA_CRON
+          ? ["xigua"]
           : SOURCE_KEYS
 
     try {
