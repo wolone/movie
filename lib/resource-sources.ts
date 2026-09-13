@@ -888,10 +888,12 @@ const SOURCE_SCHEDULE_INTERVAL_MINUTES: Record<SourceKey, number> = {
 async function syncSourcePage(
   environment: { DB: D1Database },
   sourceKey: SourceKey,
-  page: number
+  page: number,
+  options: { persistRun?: boolean } = {}
 ): Promise<SyncPageResult> {
   const config = SOURCE_CONFIGS[sourceKey]
   const startedAt = new Date().toISOString()
+  const persistRun = options.persistRun ?? true
 
   try {
     const sourcePage = await fetchSourceItems(config, page, environment)
@@ -995,32 +997,34 @@ async function syncSourcePage(
       await environment.DB.batch(batch)
     }
 
-    await environment.DB.prepare(
-      `INSERT INTO source_sync_runs (
-         source_key, last_page, last_run_at, last_success_at, last_error,
-         items_synced, page_count, total_items, last_batch_at
-       ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)
-       ON CONFLICT(source_key) DO UPDATE SET
-         last_page = excluded.last_page,
-         last_run_at = excluded.last_run_at,
-         last_success_at = excluded.last_success_at,
-         last_error = NULL,
-         items_synced = excluded.items_synced,
-         page_count = excluded.page_count,
-         total_items = excluded.total_items,
-         last_batch_at = excluded.last_batch_at`
-    )
-      .bind(
-        sourceKey,
-        sourcePage.page,
-        startedAt,
-        startedAt,
-        items.length,
-        sourcePage.pageCount || null,
-        sourcePage.totalItems || null,
-        startedAt
+    if (persistRun) {
+      await environment.DB.prepare(
+        `INSERT INTO source_sync_runs (
+           source_key, last_page, last_run_at, last_success_at, last_error,
+           items_synced, page_count, total_items, last_batch_at
+         ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)
+         ON CONFLICT(source_key) DO UPDATE SET
+           last_page = excluded.last_page,
+           last_run_at = excluded.last_run_at,
+           last_success_at = excluded.last_success_at,
+           last_error = NULL,
+           items_synced = excluded.items_synced,
+           page_count = excluded.page_count,
+           total_items = excluded.total_items,
+           last_batch_at = excluded.last_batch_at`
       )
-      .run()
+        .bind(
+          sourceKey,
+          sourcePage.page,
+          startedAt,
+          startedAt,
+          items.length,
+          sourcePage.pageCount || null,
+          sourcePage.totalItems || null,
+          startedAt
+        )
+        .run()
+    }
 
     return {
       sourceKey,
@@ -1320,6 +1324,11 @@ async function updateFullSyncProgress(
     totalItems: number | null
     itemsSyncedTotal: number
     error?: string | null
+    lastPage?: number
+    lastRunAt?: string
+    lastSuccessAt?: string
+    itemsSynced?: number
+    lastBatchAt?: string
   }
 ) {
   await environment.DB.prepare(
@@ -1329,20 +1338,30 @@ async function updateFullSyncProgress(
               ELSE ?
             END,
             sync_mode = 'full',
+            last_page = COALESCE(?, last_page),
+            last_run_at = COALESCE(?, last_run_at),
+            last_success_at = COALESCE(?, last_success_at),
+            items_synced = COALESCE(?, items_synced),
             next_page = ?,
             page_count = ?,
             total_items = ?,
             items_synced_total = ?,
-            last_error = ?
+            last_error = ?,
+            last_batch_at = COALESCE(?, last_batch_at)
       WHERE source_key = ?`
   )
     .bind(
       values.status,
+      values.lastPage ?? null,
+      values.lastRunAt ?? null,
+      values.lastSuccessAt ?? null,
+      values.itemsSynced ?? null,
       values.nextPage,
       values.pageCount,
       values.totalItems,
       values.itemsSyncedTotal,
       values.error ?? null,
+      values.lastBatchAt ?? null,
       sourceKey
     )
     .run()
@@ -1407,7 +1426,9 @@ export async function processFullSyncBatch(
         }
 
         try {
-          const pageResult = await syncSourcePage(environment, key, nextPage)
+          const pageResult = await syncSourcePage(environment, key, nextPage, {
+            persistRun: false,
+          })
           pageCount = pageResult.pageCount || pageCount
           totalItems = pageResult.totalItems || totalItems
           itemsSyncedTotal += pageResult.itemsSynced
@@ -1418,17 +1439,24 @@ export async function processFullSyncBatch(
             status = "completed"
             nextPage = 1
             pagesProcessed += 1
-            break
+          } else {
+            nextPage += 1
           }
 
-          nextPage += 1
           await updateFullSyncProgress(environment, key, {
             status,
             nextPage,
             pageCount,
             totalItems,
             itemsSyncedTotal,
+            lastPage: pageResult.page,
+            lastRunAt: pageResult.syncedAt,
+            lastSuccessAt: pageResult.syncedAt,
+            itemsSynced: pageResult.itemsSynced,
+            lastBatchAt: pageResult.syncedAt,
           })
+
+          if (reachedEnd) break
 
           if ((await getSyncRun(environment, key))?.sync_status === "paused") {
             status = "paused"
