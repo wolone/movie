@@ -449,7 +449,8 @@ export function ResourceManager() {
           <CardHeader>
             <CardTitle className="text-base">全量同步进度</CardTitle>
             <CardDescription>
-              每次 Cron 最多处理每个资源站 5 页，任务支持断点续传。
+              西瓜和无水印资源网每轮最多处理 5 页，UUZY 每轮处理 1
+              页；任务支持断点续传。
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-3">

@@ -1112,50 +1112,72 @@ export async function processFullSyncBatch(
     1,
     Math.min(5, Math.floor(options.pagesPerSource ?? FULL_SYNC_PAGES_PER_BATCH))
   )
-  const results: Array<SyncProgress & { ok: boolean; pagesProcessed: number }> =
-    []
-
-  for (const key of keys) {
-    const run = await getSyncRun(environment, key)
-    if (!run || run.sync_status !== "running") {
-      results.push({ ...toSyncProgress(key, run), ok: true, pagesProcessed: 0 })
-      continue
-    }
-
-    let nextPage = Math.max(1, run.next_page)
-    let pageCount = run.page_count
-    let totalItems = run.total_items
-    let itemsSyncedTotal = run.items_synced_total
-    let status: SyncProgressStatus = "running"
-    let error: string | null = null
-    let pagesProcessed = 0
-
-    const sourcePagesPerBatch = key === "uuzy" ? 1 : pagesPerSource
-    for (; pagesProcessed < sourcePagesPerBatch; pagesProcessed += 1) {
-      if (pageCount && nextPage > pageCount) {
-        status = "completed"
-        nextPage = 1
-        break
+  return Promise.all(
+    keys.map(async (key) => {
+      const run = await getSyncRun(environment, key)
+      if (!run || run.sync_status !== "running") {
+        return { ...toSyncProgress(key, run), ok: true, pagesProcessed: 0 }
       }
 
-      try {
-        const pageResult = await syncSourcePage(environment, key, nextPage)
-        pageCount = pageResult.pageCount || pageCount
-        totalItems = pageResult.totalItems || totalItems
-        itemsSyncedTotal += pageResult.itemsSynced
+      let nextPage = Math.max(1, run.next_page)
+      let pageCount = run.page_count
+      let totalItems = run.total_items
+      let itemsSyncedTotal = run.items_synced_total
+      let status: SyncProgressStatus = "running"
+      let error: string | null = null
+      let pagesProcessed = 0
 
-        const reachedEnd =
-          pageResult.itemsSynced === 0 ||
-          Boolean(pageCount && nextPage >= pageCount)
-
-        if (reachedEnd) {
+      const sourcePagesPerBatch = key === "uuzy" ? 1 : pagesPerSource
+      for (; pagesProcessed < sourcePagesPerBatch; pagesProcessed += 1) {
+        if (pageCount && nextPage > pageCount) {
           status = "completed"
           nextPage = 1
-          pagesProcessed += 1
           break
         }
 
-        nextPage += 1
+        try {
+          const pageResult = await syncSourcePage(environment, key, nextPage)
+          pageCount = pageResult.pageCount || pageCount
+          totalItems = pageResult.totalItems || totalItems
+          itemsSyncedTotal += pageResult.itemsSynced
+
+          const reachedEnd =
+            pageResult.itemsSynced === 0 ||
+            Boolean(pageCount && nextPage >= pageCount)
+
+          if (reachedEnd) {
+            status = "completed"
+            nextPage = 1
+            pagesProcessed += 1
+            break
+          }
+
+          nextPage += 1
+          await updateFullSyncProgress(environment, key, {
+            status,
+            nextPage,
+            pageCount,
+            totalItems,
+            itemsSyncedTotal,
+          })
+        } catch (syncError) {
+          status = "error"
+          error =
+            syncError instanceof Error ? syncError.message : String(syncError)
+          break
+        }
+      }
+
+      if (status === "error") {
+        await updateFullSyncProgress(environment, key, {
+          status,
+          nextPage,
+          pageCount,
+          totalItems,
+          itemsSyncedTotal,
+          error,
+        })
+      } else {
         await updateFullSyncProgress(environment, key, {
           status,
           nextPage,
@@ -1163,41 +1185,15 @@ export async function processFullSyncBatch(
           totalItems,
           itemsSyncedTotal,
         })
-      } catch (syncError) {
-        status = "error"
-        error =
-          syncError instanceof Error ? syncError.message : String(syncError)
-        break
       }
-    }
 
-    if (status === "error") {
-      await updateFullSyncProgress(environment, key, {
-        status,
-        nextPage,
-        pageCount,
-        totalItems,
-        itemsSyncedTotal,
-        error,
-      })
-    } else {
-      await updateFullSyncProgress(environment, key, {
-        status,
-        nextPage,
-        pageCount,
-        totalItems,
-        itemsSyncedTotal,
-      })
-    }
-
-    results.push({
-      ...toSyncProgress(key, await getSyncRun(environment, key)),
-      ok: status !== "error",
-      pagesProcessed,
+      return {
+        ...toSyncProgress(key, await getSyncRun(environment, key)),
+        ok: status !== "error",
+        pagesProcessed,
+      }
     })
-  }
-
-  return results
+  )
 }
 
 export async function startFullSync(
