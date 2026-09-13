@@ -67,8 +67,14 @@ export async function POST(request: Request) {
         sourceParam ? (sourceParam as SourceKey) : undefined
       )
       const hasFailure = results.some((result) => !result.ok)
+      const errorMessage = results.find((result) => !result.ok)?.lastError
       return Response.json(
-        { ok: !hasFailure, mode, results },
+        {
+          ok: !hasFailure,
+          mode,
+          results,
+          ...(errorMessage ? { error: errorMessage } : {}),
+        },
         { status: hasFailure ? 502 : 200 }
       )
     }
@@ -79,9 +85,15 @@ export async function POST(request: Request) {
     })
 
     const hasFailure = results.some((result) => !result.ok)
+    const errorMessage = results.find((result) => !result.ok)?.error
+    const isBusy = errorMessage?.includes("正在同步") ?? false
     return Response.json(
-      { ok: !hasFailure, results },
-      { status: hasFailure ? 502 : 200 }
+      {
+        ok: !hasFailure,
+        results,
+        ...(errorMessage ? { error: errorMessage } : {}),
+      },
+      { status: hasFailure ? (isBusy ? 409 : 502) : 200 }
     )
   } catch (error) {
     console.error("Resource source sync failed", error)

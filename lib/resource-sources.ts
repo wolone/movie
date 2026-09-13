@@ -946,7 +946,27 @@ export async function syncSource(
   sourceKey: SourceKey,
   page = 1
 ) {
-  return syncSourcePage(environment, sourceKey, Math.max(1, Math.floor(page)))
+  const run = await getSyncRun(environment, sourceKey)
+  if (!run || run.sync_status !== "running") {
+    return syncSourcePage(environment, sourceKey, Math.max(1, Math.floor(page)))
+  }
+
+  const leaseToken = await claimSyncLease(environment, sourceKey)
+  if (!leaseToken) {
+    throw new Error(
+      `${SOURCE_CONFIGS[sourceKey].name} 正在同步，请等待当前批次完成`
+    )
+  }
+
+  try {
+    return await syncSourcePage(
+      environment,
+      sourceKey,
+      Math.max(1, Math.floor(page))
+    )
+  } finally {
+    await releaseSyncLease(environment, sourceKey, leaseToken)
+  }
 }
 
 export async function syncAllSources(
