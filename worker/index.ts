@@ -4,11 +4,13 @@ import { runWithExecutionContext } from "vinext/shims/request-context"
 import { runScheduledSync, type SourceKey } from "../lib/resource-sources"
 
 const XIGUA_CRON = "2-59/5 * * * *"
+const LEGACY_XIGUA_CRON = "*/15 * * * *"
 const WSYZY_CRON = "*/5 * * * *"
 const UUZY_CRON = "* * * * *"
 
 const SOURCE_KEYS_BY_CRON: Record<string, SourceKey[]> = {
   [XIGUA_CRON]: ["xigua"],
+  [LEGACY_XIGUA_CRON]: ["xigua"],
   [WSYZY_CRON]: ["wsyzy"],
   [UUZY_CRON]: ["uuzy"],
 }
