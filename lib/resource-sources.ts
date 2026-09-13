@@ -770,9 +770,12 @@ type SyncRunRow = {
   total_items: number | null
   items_synced_total: number
   last_batch_at: string | null
+  lock_token: string | null
+  lock_until: string | null
 }
 
 const FULL_SYNC_PAGES_PER_BATCH = 5
+const SYNC_LEASE_MS = 2 * 60 * 1000
 const SOURCE_SCHEDULE_INTERVAL_MINUTES: Record<SourceKey, number> = {
   xigua: 15,
   wsyzy: 5,
@@ -954,7 +957,8 @@ async function getSyncRun(
   return environment.DB.prepare(
     `SELECT source_key, last_page, last_run_at, last_success_at, last_error,
             items_synced, sync_mode, sync_status, next_page, page_count,
-            total_items, items_synced_total, last_batch_at
+            total_items, items_synced_total, last_batch_at,
+            lock_token, lock_until
        FROM source_sync_runs
       WHERE source_key = ?
       LIMIT 1`
@@ -1045,7 +1049,21 @@ async function setFullSyncRun(
 
   if (!reset && run?.sync_status === "paused") return
 
-  if (reset || !run || run.sync_status === "completed") {
+  if (!run && !reset) {
+    await environment.DB.prepare(
+      `INSERT INTO source_sync_runs (
+         source_key, last_page, last_run_at, last_success_at, last_error,
+         items_synced, sync_mode, sync_status, next_page, page_count,
+         total_items, items_synced_total, last_batch_at
+       ) VALUES (?, 0, ?, NULL, NULL, 0, 'full', 'running', 1, NULL, NULL, 0, NULL)
+       ON CONFLICT(source_key) DO NOTHING`
+    )
+      .bind(sourceKey, now)
+      .run()
+    return
+  }
+
+  if (reset || run?.sync_status === "completed") {
     await environment.DB.prepare(
       `INSERT INTO source_sync_runs (
          source_key, last_page, last_run_at, last_success_at, last_error,
@@ -1062,14 +1080,16 @@ async function setFullSyncRun(
          page_count = NULL,
          total_items = NULL,
          items_synced_total = 0,
-         last_batch_at = NULL`
+         last_batch_at = NULL,
+         lock_token = NULL,
+         lock_until = NULL`
     )
       .bind(sourceKey, now)
       .run()
     return
   }
 
-  if (run.sync_status !== "running") {
+  if (run && run.sync_status !== "running") {
     await environment.DB.prepare(
       `UPDATE source_sync_runs
           SET sync_mode = 'full',
@@ -1081,6 +1101,40 @@ async function setFullSyncRun(
       .bind(now, sourceKey)
       .run()
   }
+}
+
+async function claimSyncLease(
+  environment: { DB: D1Database },
+  sourceKey: SourceKey
+) {
+  const token = crypto.randomUUID()
+  const now = new Date()
+  const lockUntil = new Date(now.getTime() + SYNC_LEASE_MS).toISOString()
+  const result = await environment.DB.prepare(
+    `UPDATE source_sync_runs
+        SET lock_token = ?, lock_until = ?
+      WHERE source_key = ?
+        AND sync_status = 'running'
+        AND (lock_until IS NULL OR lock_until <= ?)`
+  )
+    .bind(token, lockUntil, sourceKey, now.toISOString())
+    .run()
+
+  return (result.meta.changes ?? 0) > 0 ? token : null
+}
+
+async function releaseSyncLease(
+  environment: { DB: D1Database },
+  sourceKey: SourceKey,
+  token: string
+) {
+  await environment.DB.prepare(
+    `UPDATE source_sync_runs
+        SET lock_token = NULL, lock_until = NULL
+      WHERE source_key = ? AND lock_token = ?`
+  )
+    .bind(sourceKey, token)
+    .run()
 }
 
 async function updateFullSyncProgress(
@@ -1137,79 +1191,79 @@ export async function processFullSyncBatch(
       continue
     }
 
-    let nextPage = Math.max(1, run.next_page)
-    let pageCount = run.page_count
-    let totalItems = run.total_items
-    let itemsSyncedTotal = run.items_synced_total
-    let status: SyncProgressStatus = "running"
-    let error: string | null = null
-    let pagesProcessed = 0
+    const leaseToken = await claimSyncLease(environment, key)
+    if (!leaseToken) {
+      results.push({ ...toSyncProgress(key, run), ok: true, pagesProcessed: 0 })
+      continue
+    }
 
-    const sourcePagesPerBatch = key === "uuzy" ? 1 : pagesPerSource
-    for (; pagesProcessed < sourcePagesPerBatch; pagesProcessed += 1) {
-      if (pageCount && nextPage > pageCount) {
-        status = "completed"
-        nextPage = 1
-        break
-      }
+    try {
+      let nextPage = Math.max(1, run.next_page)
+      let pageCount = run.page_count
+      let totalItems = run.total_items
+      let itemsSyncedTotal = run.items_synced_total
+      let status: SyncProgressStatus = "running"
+      let error: string | null = null
+      let pagesProcessed = 0
 
-      try {
-        const pageResult = await syncSourcePage(environment, key, nextPage)
-        pageCount = pageResult.pageCount || pageCount
-        totalItems = pageResult.totalItems || totalItems
-        itemsSyncedTotal += pageResult.itemsSynced
-
-        const reachedEnd =
-          pageResult.itemsSynced === 0 ||
-          Boolean(pageCount && nextPage >= pageCount)
-
-        if (reachedEnd) {
+      const sourcePagesPerBatch = key === "uuzy" ? 1 : pagesPerSource
+      for (; pagesProcessed < sourcePagesPerBatch; pagesProcessed += 1) {
+        if (pageCount && nextPage > pageCount) {
           status = "completed"
           nextPage = 1
-          pagesProcessed += 1
           break
         }
 
-        nextPage += 1
-        await updateFullSyncProgress(environment, key, {
-          status,
-          nextPage,
-          pageCount,
-          totalItems,
-          itemsSyncedTotal,
-        })
-      } catch (syncError) {
-        status = "error"
-        error =
-          syncError instanceof Error ? syncError.message : String(syncError)
-        break
+        try {
+          const pageResult = await syncSourcePage(environment, key, nextPage)
+          pageCount = pageResult.pageCount || pageCount
+          totalItems = pageResult.totalItems || totalItems
+          itemsSyncedTotal += pageResult.itemsSynced
+
+          const reachedEnd =
+            pageResult.itemsSynced === 0 ||
+            Boolean(pageCount && nextPage >= pageCount)
+
+          if (reachedEnd) {
+            status = "completed"
+            nextPage = 1
+            pagesProcessed += 1
+            break
+          }
+
+          nextPage += 1
+          await updateFullSyncProgress(environment, key, {
+            status,
+            nextPage,
+            pageCount,
+            totalItems,
+            itemsSyncedTotal,
+          })
+        } catch (syncError) {
+          status = "error"
+          error =
+            syncError instanceof Error ? syncError.message : String(syncError)
+          break
+        }
       }
-    }
 
-    if (status === "error") {
       await updateFullSyncProgress(environment, key, {
         status,
         nextPage,
         pageCount,
         totalItems,
         itemsSyncedTotal,
-        error,
+        error: status === "error" ? error : null,
       })
-    } else {
-      await updateFullSyncProgress(environment, key, {
-        status,
-        nextPage,
-        pageCount,
-        totalItems,
-        itemsSyncedTotal,
-      })
-    }
 
-    results.push({
-      ...toSyncProgress(key, await getSyncRun(environment, key)),
-      ok: status !== "error",
-      pagesProcessed,
-    })
+      results.push({
+        ...toSyncProgress(key, await getSyncRun(environment, key)),
+        ok: status !== "error",
+        pagesProcessed,
+      })
+    } finally {
+      await releaseSyncLease(environment, key, leaseToken)
+    }
   }
 
   return results

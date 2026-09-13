@@ -13,6 +13,7 @@
 - 三个资源站的元数据与外部播放链接同步：西瓜资源、无水印资源网、UUZY
 - ApiZero 生产环境豆瓣资料同步，支持将资源站记录映射到豆瓣 ID
 - Cloudflare Cron 分批推进三个资源站的全量同步任务：西瓜每 15 分钟，无水印/UUZY 每 5 分钟，支持 D1 游标断点续传
+- D1 同步租约避免 Cron 与后台手动操作同时处理同一资源站；异常执行会在租约过期后自动恢复
 - Skeleton 加载态和 D1 不可用时的本地 fallback 数据
 - shadcn/ui 官方 Base UI 组件：Button、Badge、Card、Dialog、Input、ScrollArea、Skeleton、Separator、ToggleGroup
 
@@ -101,6 +102,8 @@ POST /api/catalog/sync
 资源管理页面：<https://movie.71954466.workers.dev/admin>。页面提供“全量同步当前”和“全量同步全部”按钮，任务会分批执行并显示进度，也可以对单个资源站暂停和继续。
 
 重复调用 `mode=full` 不会重置正在运行的任务，会从当前游标继续；已暂停的任务保持暂停，需要调用 `mode=resume`；只有已完成的任务才会开启下一轮全量同步。
+
+Cron 和后台手动同步可以同时触发，但同一资源站同一时间只会由一个批次持有 D1 同步租约；另一个批次会跳过该资源站，等待下一次 Cron 继续。租约默认两分钟，Worker 异常退出后会自动过期，不会永久阻塞同步。
 
 `/api/sync` 为公开的手动同步入口。`/api/catalog/sync` 接收以下 JSON：
 
