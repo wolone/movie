@@ -775,7 +775,13 @@ type SyncRunRow = {
 }
 
 const FULL_SYNC_PAGES_PER_BATCH = 5
+const WSYZY_FULL_SYNC_PAGES_PER_BATCH = 10
 const SYNC_LEASE_MS = 2 * 60 * 1000
+const SOURCE_BATCH_PAGES: Record<SourceKey, number> = {
+  xigua: FULL_SYNC_PAGES_PER_BATCH,
+  wsyzy: WSYZY_FULL_SYNC_PAGES_PER_BATCH,
+  uuzy: 1,
+}
 const SOURCE_SCHEDULE_INTERVAL_MINUTES: Record<SourceKey, number> = {
   xigua: 15,
   wsyzy: 5,
@@ -1004,7 +1010,7 @@ function toSyncProgress(
   const pagesRemaining = run.page_count
     ? Math.max(0, run.page_count - currentPage)
     : null
-  const pagesPerBatch = sourceKey === "uuzy" ? 1 : 5
+  const pagesPerBatch = SOURCE_BATCH_PAGES[sourceKey]
   const scheduleIntervalMinutes = SOURCE_SCHEDULE_INTERVAL_MINUTES[sourceKey]
 
   return {
@@ -1206,7 +1212,12 @@ export async function processFullSyncBatch(
       let error: string | null = null
       let pagesProcessed = 0
 
-      const sourcePagesPerBatch = key === "uuzy" ? 1 : pagesPerSource
+      const sourcePagesPerBatch =
+        key === "wsyzy"
+          ? WSYZY_FULL_SYNC_PAGES_PER_BATCH
+          : key === "uuzy"
+            ? 1
+            : pagesPerSource
       for (; pagesProcessed < sourcePagesPerBatch; pagesProcessed += 1) {
         if (pageCount && nextPage > pageCount) {
           status = "completed"
